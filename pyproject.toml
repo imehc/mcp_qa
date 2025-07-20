@@ -1,0 +1,18 @@
+[project]
+name = "mcp-qa"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "faiss-cpu>=1.11.0.post1",
+    "gradio>=5.38.0",
+    "langchain>=0.3.26",
+    "langchain-community>=0.3.27",
+    "langchain-huggingface>=0.3.0",
+    "langchain-openai>=0.3.28",
+    "openai>=1.97.0",
+    "pymupdf>=1.26.3",
+    "sentence-transformers>=5.0.0",
+    "unstructured[all-docs]>=0.18.9",
+]
