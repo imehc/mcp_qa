@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 import logging
 import os
+from typing import Optional
 from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
@@ -8,7 +9,7 @@ from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Route, Mount
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response  # 确保导入Response
 import uvicorn
 from pydantic import BaseModel
 
@@ -24,10 +25,11 @@ load_dotenv()
 
 class Config:
     """配置类"""
+
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", 8020))
     DEBUG = os.getenv("DEBUG", "False").lower() == "true"
-    FILE_PATH = os.getenv("FILE_PATH", "/Users/imehc/Downloads/JavaScript百炼成仙.pdf")
+    FILE_PATH = os.getenv("FILE_PATH", "/Users/imehc/learn/python/mcp_qa/aaa.txt")
 
 
 # 初始化MCP - 添加协议版本
@@ -36,21 +38,21 @@ mcp = FastMCP("file_reader", protocol_version="1.0")
 
 # 定义工具调用参数模型
 class ReadFileParams(BaseModel):
-    pass  # 此工具不需要参数，但保留模型以符合协议
+    file_path: Optional[str] = None
 
 
 @mcp.tool()
 async def read_file(params: ReadFileParams):
     """
-    读取配置中文件的数据
-    
+    读取文件内容
+
     Args:
-        params: 工具调用参数（即使不需要参数也要声明）
-    
+        file_path: 可选，缺省使用 Config.FILE_PATH
+
     Returns:
         文件内容或错误信息
     """
-    file_path = Config.FILE_PATH
+    file_path = params.file_path or Config.FILE_PATH
     try:
         logger.info(f"Reading file:{file_path}")
         # 使用二进制读取避免编码问题
@@ -61,25 +63,18 @@ async def read_file(params: ReadFileParams):
                 return content.decode("utf-8")
             except UnicodeDecodeError:
                 import base64
+
                 return {
                     "content": base64.b64encode(content).decode("utf-8"),
                     "encoding": "base64",
-                    "message": "文件包含非UTF-8字符，已使用Base64编码"
+                    "message": "文件包含非UTF-8字符，已使用Base64编码",
                 }
     except FileNotFoundError as e:
         logger.error(f"File not found: {file_path}")
-        return {
-            "error": "File not found",
-            "details": str(e),
-            "path": file_path
-        }
+        return {"error": "File not found", "details": str(e), "path": file_path}
     except Exception as e:
         logger.exception(f"Error reading file: {file_path}")
-        return {
-            "error": "Unexpected error",
-            "details": str(e),
-            "path": file_path
-        }
+        return {"error": "Unexpected error", "details": str(e), "path": file_path}
 
 
 def create_starlette_app(mcp_server: Server) -> Starlette:
@@ -94,26 +89,34 @@ def create_starlette_app(mcp_server: Server) -> Starlette:
     """
     sse = SseServerTransport("/messages/")
 
-    async def handle_sse(request: Request) -> None:
-        # 添加请求日志以帮助调试
-        logger.debug(f"Received SSE connection from {request.client.host}")
-        
-        async with sse.connect_sse(
-            request.scope,
-            request.receive,
-            request._send,
-        ) as (read_stream, write_stream):
-            # 修复：直接使用InitializationOptions对象，不进行解包
-            await mcp_server.run(
-                read_stream,
-                write_stream,
-                mcp_server.create_initialization_options(),
-            )
+    async def handle_sse(request: Request) -> Response:
+        """处理SSE连接"""
+        try:
+            # 添加请求日志以帮助调试
+            logger.debug(f"Received SSE connection from {request.client.host}")
+
+            async with sse.connect_sse(
+                request.scope,
+                request.receive,
+                request._send,
+            ) as (read_stream, write_stream):
+                # 修复：直接使用InitializationOptions对象，不进行解包
+                await mcp_server.run(
+                    read_stream,
+                    write_stream,
+                    mcp_server.create_initialization_options(),
+                )
+
+            # 成功完成返回200响应
+            return Response(status_code=200)
+        except Exception as e:
+            logger.error(f"Error in SSE handler: {str(e)}")
+            return JSONResponse({"error": "Internal server error"}, status_code=500)
 
     # 添加健康检查端点
     async def health_check(request: Request):
         return JSONResponse({"status": "ok", "service": "mcp-server"})
-    
+
     return Starlette(
         debug=Config.DEBUG,
         routes=[
@@ -150,14 +153,14 @@ if __name__ == "__main__":
     if not os.path.exists(Config.FILE_PATH):
         logger.warning(f"File does not exist: {Config.FILE_PATH}")
         logger.info("Using default file path if available...")
-    
+
     # 启动服务器
     mcp_server = mcp._mcp_server
     starlette_app = create_starlette_app(mcp_server)
 
     logger.info(f"Starting server on {Config.HOST}:{Config.PORT}")
     logger.info(f"Serving file: {Config.FILE_PATH}")
-    
+
     uvicorn.run(
         starlette_app,
         host=Config.HOST,
