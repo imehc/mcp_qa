@@ -12,3 +12,5 @@ wheels/
 docs/
 faiss_index/
 .gradio/
+*.pid
+*.txt
