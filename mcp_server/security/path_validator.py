@@ -8,8 +8,8 @@ MCP 服务器路径验证和安全工具
 import os
 import re
 import logging
-from typing import List, Optional, Set
-from pathlib import Path, PurePath
+from typing import List, Optional
+from pathlib import Path
 
 from ..config import config
 from ..exceptions import (

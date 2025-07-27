@@ -9,7 +9,7 @@ import os
 import pickle
 import logging
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import json
 from datetime import datetime
 
@@ -19,10 +19,10 @@ except ImportError:
     faiss = None
 
 from ..config import config
-from ..types import TextChunk, IndexStatus
+from ..types import TextChunk
 from ..exceptions import IndexNotFoundError, IndexCorruptedError
-from ..utils import Timer, calculate_file_hash
-from .embeddings import embedding_manager, EmbeddingResult
+from ..utils import Timer
+from .embeddings import embedding_manager
 
 logger = logging.getLogger(__name__)
 

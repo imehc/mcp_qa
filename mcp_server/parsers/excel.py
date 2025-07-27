@@ -5,7 +5,7 @@ Excel文档解析器
 
 import os
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import pandas as pd
 import openpyxl
 from openpyxl.utils import get_column_letter
@@ -36,14 +36,14 @@ class ExcelParser:
         """
         解析Excel文件
         
-        Args:
+        参数:
             file_path: Excel文件路径
             **kwargs: 其他参数
                 - max_rows: 最大读取行数，默认None（无限制）
                 - include_empty: 是否包含空行，默认False
                 - sheet_names: 指定要解析的工作表名称列表，默认None（解析所有）
         
-        Returns:
+        返回:
             解析结果字典
         """
         if not os.path.exists(file_path):
@@ -227,11 +227,11 @@ class ExcelParser:
         """
         提取Excel文件的表格结构信息
         
-        Args:
+        参数:
             file_path: Excel文件路径
             sheet_name: 工作表名称，如果为None则分析所有工作表
         
-        Returns:
+        返回:
             表格结构信息
         """
         try:

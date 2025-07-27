@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from ..config import config
-from ..exceptions import PermissionDeniedError, SecurityError
+from ..exceptions import PermissionDeniedError
 from .path_validator import path_validator
 
 logger = logging.getLogger(__name__)

@@ -4,19 +4,19 @@ MCP 服务器文档解析工具
 该模块提供与 MCP 兼容的工具，用于解析各种文档格式并提取结构化内容。
 """
 
+import os
 import logging
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 
-from ..config import config
 from ..security.path_validator import validate_path
 from ..security.permissions import (
     Permission, AccessLevel, AccessRequest, 
     permission_manager
 )
-from ..exceptions import ParsingError, FileAccessDeniedError
 from ..parsers.base import get_parser_for_file, get_supported_extensions
 from ..parsers.converters import auto_convert_doc_to_docx
 from ..indexing.manager import index_manager
+from ..indexing.cache import is_file_indexed_and_current, cache_file_index_result, file_index_cache
 from ..utils import Timer
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,8 @@ class DocumentParsingTools:
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
         build_vector_index: bool = True,
-        force_reindex: bool = False
+        force_reindex: bool = False,
+        use_cache: bool = True
     ) -> Dict[str, Any]:
         """
         解析文档并提取其内容。
@@ -107,6 +108,7 @@ class DocumentParsingTools:
             chunk_overlap: 块之间的重叠
             build_vector_index: 是否自动构建向量索引
             force_reindex: 是否强制重新构建索引（忽略缓存）
+            use_cache: 是否使用缓存（默认True）
             
         返回:
             包含解析内容、元数据和索引结果的字典
@@ -126,6 +128,153 @@ class DocumentParsingTools:
                 resource=validated_path
             )
             permission_manager.require_permission(request, self.access_level)
+            
+            # 优先级 1: 检查向量索引缓存（如果请求构建向量索引）
+            if build_vector_index and not force_reindex:
+                # 检查文件是否在向量索引中且有效
+                if (validated_path in index_manager.indexed_documents and 
+                    index_manager._is_file_in_current_index_and_valid(validated_path)):
+                    
+                    parse_time = timer.stop()
+                    
+                    # 从向量索引缓存获取结果
+                    cached_info = file_index_cache.get_cached_file_info(validated_path)
+                    
+                    result = {
+                        "success": True,
+                        "file_path": validated_path,
+                        "original_file_path": file_path,
+                        "resolved_file_path": resolved_path,
+                        "parser_type": cached_info.get("metadata", {}).get("parser_type", "VectorIndexCached") if cached_info else "VectorIndexCached",
+                        "parse_time": parse_time,
+                        "from_cache": True,
+                        "cached": True,
+                        "cache_type": "vector_index"
+                    }
+                    
+                    # 从缓存获取内容
+                    if cached_info and cached_info.get("parse_content"):
+                        result["content"] = cached_info["parse_content"]
+                    else:
+                        result["content"] = "[从向量索引缓存加载 - 内容已索引]"
+                    
+                    # 如果请求元数据，从缓存获取
+                    if extract_metadata and cached_info:
+                        result["metadata"] = cached_info.get("metadata", {})
+                    
+                    # 如果请求文本块信息
+                    if create_chunks and cached_info:
+                        chunks_count = cached_info.get("chunks_count", 0)
+                        result["total_chunks"] = chunks_count
+                        
+                        chunks_info = cached_info.get("chunks_info", [])
+                        if chunks_info:
+                            result["chunks"] = [
+                                {
+                                    "chunk_id": chunk_info.get("chunk_id", i),
+                                    "content": f"[向量索引缓存块 {i+1} - 长度: {chunk_info.get('content_length', 0)} 字符]",
+                                    "metadata": chunk_info.get("metadata", {})
+                                }
+                                for i, chunk_info in enumerate(chunks_info)
+                            ]
+                        else:
+                            result["chunks"] = f"[向量索引中有 {chunks_count} 个文本块]"
+                    
+                    # 向量索引结果
+                    result["vector_index"] = {
+                        "success": True,
+                        "message": "使用现有向量索引（文件未修改）",
+                        "from_cache": True,
+                        "cached": True,
+                        "cache_type": "vector_index"
+                    }
+                    
+                    # 更新统计信息
+                    self._update_parsing_stats("VectorIndexCached", parse_time, True)
+                    
+                    logger.info(f"文档解析成功（使用向量索引缓存）: {validated_path}")
+                    return result
+            
+            # 优先级 2: 检查文本解析缓存（如果不需要向量索引或向量索引未命中）
+            use_cache_flag = use_cache and not force_reindex and is_file_indexed_and_current(validated_path)
+            
+            if use_cache_flag:
+                # 从缓存获取解析结果
+                cached_info = file_index_cache.get_cached_file_info(validated_path)
+                if cached_info:
+                    parse_time = timer.stop()
+                    
+                    # 构建缓存结果
+                    result = {
+                        "success": True,
+                        "file_path": validated_path,
+                        "original_file_path": file_path,
+                        "resolved_file_path": resolved_path,
+                        "parser_type": cached_info.get("metadata", {}).get("parser_type", "Cached"),
+                        "parse_time": parse_time,
+                        "from_cache": True,
+                        "cached": True,
+                        "cache_type": "parse_result"
+                    }
+                    
+                    # 如果缓存中有内容，返回内容；否则返回占位符
+                    cached_content = cached_info.get("parse_content")
+                    if cached_content:
+                        result["content"] = cached_content
+                    else:
+                        result["content"] = "[从解析缓存加载 - 内容已索引但未缓存完整文本]"
+                    
+                    # 如果请求元数据，从缓存获取
+                    if extract_metadata:
+                        result["metadata"] = cached_info.get("metadata", {})
+                    
+                    # 如果请求文本块信息
+                    if create_chunks:
+                        chunks_count = cached_info.get("chunks_count", 0)
+                        result["total_chunks"] = chunks_count
+                        
+                        # 如果缓存中有文本块信息，返回概要；否则返回计数
+                        chunks_info = cached_info.get("chunks_info", [])
+                        if chunks_info:
+                            result["chunks"] = [
+                                {
+                                    "chunk_id": chunk_info.get("chunk_id", i),
+                                    "content": f"[解析缓存块 {i+1} - 长度: {chunk_info.get('content_length', 0)} 字符]",
+                                    "metadata": chunk_info.get("metadata", {})
+                                }
+                                for i, chunk_info in enumerate(chunks_info)
+                            ]
+                        else:
+                            result["chunks"] = f"[解析缓存中有 {chunks_count} 个文本块 - 详细信息未缓存]"
+                    
+                    # 处理向量索引
+                    if build_vector_index:
+                        # 检查是否在当前索引管理器中
+                        if validated_path in index_manager.indexed_documents:
+                            result["vector_index"] = {
+                                "success": True,
+                                "message": "使用现有索引（文件未修改）",
+                                "from_cache": True,
+                                "cached": True,
+                                "cache_type": "parse_result_with_vector"
+                            }
+                        else:
+                            # 缓存有效但不在当前索引中，需要添加到索引
+                            logger.info(f"从解析缓存恢复文件到索引: {validated_path}")
+                            index_result = index_manager.add_documents(
+                                [validated_path], 
+                                update_existing=True
+                            )
+                            result["vector_index"] = index_result
+                    
+                    # 更新统计信息
+                    self._update_parsing_stats("ParseResultCached", parse_time, True)
+                    
+                    logger.info(f"文档解析成功（使用解析缓存）: {validated_path}")
+                    return result
+            
+            # 缓存未命中或强制重新解析，执行完整解析
+            logger.info(f"执行完整文档解析: {validated_path}")
             
             # 获取适当的解析器
             parser = get_parser_for_file(validated_path)
@@ -162,7 +311,8 @@ class DocumentParsingTools:
                 "resolved_file_path": resolved_path,
                 "parser_type": parser.__class__.__name__,
                 "content": parse_result.content,
-                "parse_time": parse_time
+                "parse_time": parse_time,
+                "from_cache": False
             }
             
             # 如请求则添加元数据
@@ -170,11 +320,13 @@ class DocumentParsingTools:
                 result["metadata"] = parse_result.metadata
             
             # 如请求则创建文本块
+            chunks_count = 0
             if create_chunks and parse_result.content:
                 chunks = parser.create_text_chunks(
                     parse_result.content,
                     validated_path
                 )
+                chunks_count = len(chunks)
                 
                 result["chunks"] = [
                     {
@@ -184,43 +336,36 @@ class DocumentParsingTools:
                     }
                     for chunk in chunks
                 ]
-                result["total_chunks"] = len(chunks)
+                result["total_chunks"] = chunks_count
             
             # 如请求则构建向量索引
             if build_vector_index:
                 try:
-                    # 检查是否需要重建索引
-                    needs_indexing = force_reindex
+                    logger.info(f"为文件构建向量索引: {validated_path}")
                     
-                    if not needs_indexing:
-                        # 检查文件是否已在索引中且未修改
-                        from ..utils import calculate_file_hash
-                        current_hash = calculate_file_hash(validated_path)
-                        
-                        # 检查索引管理器中的文档跟踪
-                        if (validated_path in index_manager.indexed_documents and 
-                            index_manager.document_hashes.get(validated_path) == current_hash):
-                            result["vector_index"] = {
-                                "success": True,
-                                "message": "使用现有索引（文件未修改）",
-                                "from_cache": True,
-                                "file_hash": current_hash
-                            }
-                        else:
-                            needs_indexing = True
+                    # 使用索引管理器添加文档
+                    index_result = index_manager.add_documents(
+                        [validated_path], 
+                        update_existing=True
+                    )
                     
-                    if needs_indexing:
-                        # 构建向量索引
-                        logger.info(f"为文件构建向量索引: {validated_path}")
-                        
-                        # 使用索引管理器添加文档
-                        index_result = index_manager.add_documents(
-                            [validated_path], 
-                            update_existing=True
+                    # 缓存索引结果
+                    if index_result.get("success", False) and index_result.get("processed_files", 0) > 0:
+                        cache_file_index_result(
+                            validated_path,
+                            index_result,
+                            chunks_count=chunks_count or result.get("total_chunks", 0),
+                            metadata={
+                                "parser_type": parser.__class__.__name__,
+                                "file_size": os.path.getsize(validated_path),
+                                **(parse_result.metadata or {})
+                            },
+                            parse_content=parse_result.content,
+                            parse_chunks=result.get("chunks")
                         )
-                        
-                        result["vector_index"] = index_result
-                        
+                    
+                    result["vector_index"] = index_result
+                    
                 except Exception as e:
                     logger.warning(f"向量索引构建失败 {validated_path}: {str(e)}")
                     result["vector_index"] = {
@@ -228,6 +373,20 @@ class DocumentParsingTools:
                         "error": f"索引构建失败: {str(e)}",
                         "message": "文档解析成功，但向量索引构建失败"
                     }
+            else:
+                # 即使不构建向量索引，也缓存解析结果
+                cache_file_index_result(
+                    validated_path,
+                    {"success": True, "no_vector_index": True},
+                    chunks_count=chunks_count or result.get("total_chunks", 0),
+                    metadata={
+                        "parser_type": parser.__class__.__name__,
+                        "file_size": os.path.getsize(validated_path),
+                        **(parse_result.metadata or {})
+                    },
+                    parse_content=parse_result.content,
+                    parse_chunks=result.get("chunks")
+                )
             
             logger.info(f"文档解析成功: {validated_path}")
             return result
@@ -680,6 +839,16 @@ MCP_PARSER_TOOLS = {
                     "type": "integer",
                     "description": "块之间的重叠 (默认: 200)",
                     "default": 200
+                },
+                "force_reindex": {
+                    "type": "boolean",
+                    "description": "是否强制重新构建索引，忽略缓存 (默认: false)",
+                    "default": False
+                },
+                "use_cache": {
+                    "type": "boolean",
+                    "description": "是否使用缓存机制 (默认: true)",
+                    "default": True
                 }
             },
             "required": ["file_path"]
@@ -716,6 +885,16 @@ MCP_PARSER_TOOLS = {
                     "type": "integer",
                     "description": "块之间的重叠 (默认: 200)",
                     "default": 200
+                },
+                "force_reindex": {
+                    "type": "boolean",
+                    "description": "是否强制重新构建索引，忽略缓存 (默认: false)",
+                    "default": False
+                },
+                "use_cache": {
+                    "type": "boolean",
+                    "description": "是否使用缓存机制 (默认: true)",
+                    "default": True
                 },
                 "continue_on_error": {
                     "type": "boolean",
@@ -841,6 +1020,23 @@ def register_parser_tools(mcp):
         # Handle parameter mapping: 'file' -> 'file_path'
         if 'file' in params:
             params['file_path'] = params.pop('file')
+        
+        # 如果只是简单解析，可以使用解析器的缓存感知方法
+        use_cache = params.get('use_cache', True)
+        if not params.get('build_vector_index', True):
+            parser = get_parser_for_file(params['file_path'])
+            if parser:
+                result = parser.parse_with_cache_check(params['file_path'], use_cache)
+                if result.success:
+                    return {
+                        "success": True,
+                        "file_path": result.file_path,
+                        "content": result.content,
+                        "metadata": result.metadata,
+                        "parser_type": result.parsing_method,
+                        "from_cache": result.metadata.get("from_cache", False)
+                    }
+        
         return doc_parser_tools.parse_document(**params)
     
     @mcp.tool()
@@ -849,6 +1045,23 @@ def register_parser_tools(mcp):
         # Handle parameter mapping: 'file' -> 'file_path'
         if 'file' in params:
             params['file_path'] = params.pop('file')
+        
+        # 如果只是简单解析，可以使用解析器的缓存感知方法
+        use_cache = params.get('use_cache', True)
+        if not params.get('build_vector_index', True):
+            parser = get_parser_for_file(params['file_path'])
+            if parser:
+                result = parser.parse_with_cache_check(params['file_path'], use_cache)
+                if result.success:
+                    return {
+                        "success": True,
+                        "file_path": result.file_path,
+                        "content": result.content,
+                        "metadata": result.metadata,
+                        "parser_type": result.parsing_method,
+                        "from_cache": result.metadata.get("from_cache", False)
+                    }
+        
         return doc_parser_tools.parse_document(**params)
     
     @mcp.tool()
@@ -857,6 +1070,23 @@ def register_parser_tools(mcp):
         # Handle parameter mapping: 'file' -> 'file_path'
         if 'file' in params:
             params['file_path'] = params.pop('file')
+        
+        # 如果只是简单解析，可以使用解析器的缓存感知方法
+        use_cache = params.get('use_cache', True)
+        if not params.get('build_vector_index', True):
+            parser = get_parser_for_file(params['file_path'])
+            if parser:
+                result = parser.parse_with_cache_check(params['file_path'], use_cache)
+                if result.success:
+                    return {
+                        "success": True,
+                        "file_path": result.file_path,
+                        "content": result.content,
+                        "metadata": result.metadata,
+                        "parser_type": result.parsing_method,
+                        "from_cache": result.metadata.get("from_cache", False)
+                    }
+        
         return doc_parser_tools.parse_document(**params)
     
     @mcp.tool()
@@ -865,4 +1095,21 @@ def register_parser_tools(mcp):
         # Handle parameter mapping: 'file' -> 'file_path'
         if 'file' in params:
             params['file_path'] = params.pop('file')
+        
+        # 如果只是简单解析，可以使用解析器的缓存感知方法
+        use_cache = params.get('use_cache', True)
+        if not params.get('build_vector_index', True):
+            parser = get_parser_for_file(params['file_path'])
+            if parser:
+                result = parser.parse_with_cache_check(params['file_path'], use_cache)
+                if result.success:
+                    return {
+                        "success": True,
+                        "file_path": result.file_path,
+                        "content": result.content,
+                        "metadata": result.metadata,
+                        "parser_type": result.parsing_method,
+                        "from_cache": result.metadata.get("from_cache", False)
+                    }
+        
         return doc_parser_tools.parse_document(**params)

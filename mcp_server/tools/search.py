@@ -5,14 +5,13 @@ MCP 服务器搜索工具
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 
-from ..config import config
 from ..security.permissions import (
     Permission, AccessLevel, AccessRequest, 
     permission_manager
 )
-from ..exceptions import SearchError, IndexNotFoundError
+from ..exceptions import IndexNotFoundError
 from ..indexing.manager import index_manager
 from ..indexing.search import search_engine, SearchQuery, SearchType
 from ..utils import Timer

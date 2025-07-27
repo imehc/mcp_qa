@@ -8,13 +8,13 @@ import sys
 import os
 import argparse
 import signal
-from typing import Optional, List
+from typing import List
 from pathlib import Path
 
 # 添加当前目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from mcp_server.server import run_server, create_server
+from mcp_server.server import run_server
 from mcp_server.config import Config
 from mcp_server.monitoring.logger import setup_logger, set_log_level
 

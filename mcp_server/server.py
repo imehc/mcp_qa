@@ -3,10 +3,8 @@ MCP服务器主模块
 集成所有功能并提供统一的服务器入口
 """
 
-import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from dotenv import load_dotenv
-from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette

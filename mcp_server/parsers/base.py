@@ -13,7 +13,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from ..config import config
 from ..types import ParseResult, FileType, ParserStatus, TextChunk
-from ..exceptions import ParsingError, FileNotFoundError, UnsupportedFileTypeError
+from ..exceptions import ParsingError, UnsupportedFileTypeError
 from ..utils import get_file_type, validate_file_access, clean_text, Timer
 
 logger = logging.getLogger(__name__)
@@ -40,14 +40,17 @@ class BaseParser(ABC):
             chunk_overlap=config.embedding.CHUNK_OVERLAP,
             separators=config.embedding.TEXT_SEPARATORS
         )
+        # 缓存感知标志
+        self.cache_aware = True
     
     @abstractmethod
-    def parse(self, file_path: str) -> ParseResult:
+    def parse(self, file_path: str, use_cache: bool = True) -> ParseResult:
         """
         解析文档并提取其内容。
         
         参数:
             file_path: 要解析的文件路径
+            use_cache: 是否使用缓存（默认True）
             
         返回:
             包含提取内容和元数据的 ParseResult
@@ -244,6 +247,56 @@ class BaseParser(ABC):
                 error=str(e),
                 metadata={'parsing_time': timer.elapsed()}
             )
+    
+    def parse_with_cache_check(self, file_path: str, use_cache: bool = True) -> ParseResult:
+        """
+        带有缓存检查的解析方法。
+        
+        参数:
+            file_path: 要解析的文件路径
+            use_cache: 是否使用缓存
+            
+        返回:
+            ParseResult，如果缓存有效则包含缓存标记
+        """
+        if not use_cache or not self.cache_aware:
+            return self.safe_parse(file_path)
+        
+        # 检查缓存
+        try:
+            from ..indexing.cache import is_file_indexed_and_current, file_index_cache
+            
+            if is_file_indexed_and_current(file_path):
+                cached_info = file_index_cache.get_cached_file_info(file_path)
+                if cached_info and cached_info.get("parse_content"):
+                    # 从缓存构造结果
+                    result = ParseResult(
+                        success=True,
+                        file_path=file_path,
+                        file_type=self.file_type,
+                        status=ParserStatus.SUCCESS,
+                        content=cached_info["parse_content"],
+                        chunks=[],  # 空的，因为主要内容来自缓存
+                        metadata={
+                            "from_cache": True,
+                            "cached_at": cached_info.get("indexed_at"),
+                            "file_size": cached_info.get("size", 0),
+                            "chunks_count": cached_info.get("chunks_count", 0),
+                            **(cached_info.get("metadata", {}))
+                        },
+                        parsing_method=f"Cached-{self.__class__.__name__}"
+                    )
+                    logger.info(f"使用缓存解析结果: {file_path}")
+                    return result
+                    
+        except ImportError:
+            # 缓存模块不可用，回退到常规解析
+            logger.debug("缓存模块不可用，执行常规解析")
+        except Exception as e:
+            logger.warning(f"缓存检查失败: {e}，执行常规解析")
+        
+        # 缓存未命中或检查失败，执行常规解析
+        return self.safe_parse(file_path)
 
 
 class TextBasedParser(BaseParser):

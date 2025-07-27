@@ -7,9 +7,9 @@ MCP 服务器文本文档解析器
 
 import os
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
-from ..types import ParseResult, FileType, ParserStatus
+from ..types import ParseResult, FileType
 from ..exceptions import ParsingError, EmptyDocumentError, EncodingError
 from .base import TextBasedParser
 from ..config import config
@@ -79,18 +79,67 @@ class TextParser(TextBasedParser):
             '.csv': 'csv'
         }
     
-    def parse(self, file_path: str) -> ParseResult:
+    def parse(self, file_path: str, use_cache: bool = True) -> ParseResult:
         """
         解析文本文档并提取其内容。
         
         参数:
             file_path: 文本文件路径
+            use_cache: 是否使用缓存（默认True）
             
         返回:
             包含提取内容和元数据的 ParseResult
             
         引发:
             ParsingError: 如果文本解析失败
+        """
+        # 如果启用缓存且支持缓存，先检查缓存
+        if use_cache and self.cache_aware:
+            try:
+                from ..indexing.cache import is_file_indexed_and_current, file_index_cache
+                
+                if is_file_indexed_and_current(file_path):
+                    cached_info = file_index_cache.get_cached_file_info(file_path)
+                    if cached_info and cached_info.get("parse_content"):
+                        logger.info(f"使用文本解析缓存: {file_path}")
+                        
+                        # 从缓存构造结果
+                        from ..types import ParserStatus
+                        return ParseResult(
+                            success=True,
+                            file_path=file_path,
+                            file_type=self.file_type,
+                            status=ParserStatus.SUCCESS,
+                            content=cached_info["parse_content"],
+                            chunks=[],  # 空的，因为主要内容来自缓存
+                            metadata={
+                                "from_cache": True,
+                                "cached_at": cached_info.get("indexed_at"),
+                                "file_size": cached_info.get("size", 0),
+                                "chunks_count": cached_info.get("chunks_count", 0),
+                                "parsing_method": "Cached-TextParser",
+                                **(cached_info.get("metadata", {}))
+                            },
+                            parsing_method="Cached-TextParser"
+                        )
+                        
+            except ImportError:
+                logger.debug("缓存模块不可用，执行常规文本解析")
+            except Exception as e:
+                logger.warning(f"文本缓存检查失败: {e}，执行常规解析")
+        
+        # 缓存未命中或禁用缓存，执行常规解析
+        return self._parse_text_content(file_path)
+    
+    def _parse_text_content(self, file_path: str) -> ParseResult:
+        """
+        执行文本内容的实际解析。
+        
+        参数:
+            file_path: 文本文件路径
+            
+        返回:
+            包含提取内容和元数据的 ParseResult
         """
         try:
             # 尝试不同编码
@@ -129,8 +178,11 @@ class TextParser(TextBasedParser):
                 "non_empty_lines": structured_content.get("non_empty_lines", 0),
                 "file_size": os.path.getsize(file_path),
                 "statistics": structured_content.get("statistics", {}),
-                "language_features": structured_content.get("language_features", {})
+                "language_features": structured_content.get("language_features", {}),
+                "parsing_method": f"TextParser ({encoding_used})"
             }
+            
+            logger.info(f"文本解析完成: {file_path} ({metadata['line_count']} 行, {encoding_used} 编码)")
             
             return self.create_success_result(
                 file_path=file_path,

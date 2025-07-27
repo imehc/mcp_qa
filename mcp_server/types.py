@@ -4,7 +4,7 @@ MCP 服务器类型定义
 该模块包含在整个 MCP 服务器应用程序中使用的所有类型定义、数据类和枚举。
 """
 
-from typing import Dict, List, Optional, Union, Any, Literal, Callable
+from typing import Dict, List, Optional, Union, Any, Callable
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime

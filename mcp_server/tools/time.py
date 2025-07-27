@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 import pytz
@@ -55,10 +55,10 @@ def get_current_time_sync(params: GetCurrentTimeParams) -> Dict[str, Any]:
     """
     获取当前时间
     
-    Args:
+    参数:
         params: 包含时区和格式的参数
         
-    Returns:
+    返回:
         当前时间信息
     """
     try:
@@ -117,10 +117,10 @@ def format_timestamp_sync(params: FormatTimeParams) -> Dict[str, Any]:
     """
     格式化时间戳
     
-    Args:
+    参数:
         params: 包含时间戳、格式和时区的参数
         
-    Returns:
+    返回:
         格式化后的时间信息
     """
     try:
@@ -180,10 +180,10 @@ def parse_time_string_sync(params: ParseTimeParams) -> Dict[str, Any]:
     """
     解析时间字符串
     
-    Args:
+    参数:
         params: 包含时间字符串、格式和时区的参数
         
-    Returns:
+    返回:
         解析后的时间信息
     """
     try:
@@ -278,10 +278,10 @@ def calculate_time_sync(params: TimeCalculationParams) -> Dict[str, Any]:
     """
     时间计算
     
-    Args:
+    参数:
         params: 包含基础时间戳和计算参数
         
-    Returns:
+    返回:
         计算后的时间信息
     """
     try:
@@ -364,10 +364,10 @@ def convert_timezone_sync(params: TimezoneConvertParams) -> Dict[str, Any]:
     """
     时区转换
     
-    Args:
+    参数:
         params: 包含时间戳和源、目标时区的参数
         
-    Returns:
+    返回:
         转换后的时间信息
     """
     try:
@@ -408,7 +408,7 @@ def get_available_timezones() -> Dict[str, Any]:
     """
     获取可用的时区列表
     
-    Returns:
+    返回:
         时区信息
     """
     try:
@@ -460,7 +460,7 @@ def get_time_info() -> Dict[str, Any]:
     """
     获取时间相关的系统信息
     
-    Returns:
+    返回:
         时间系统信息
     """
     try:
@@ -531,15 +531,15 @@ def test_time_tools():
     """测试时间工具"""
     try:
         # 测试获取当前时间
-        result = get_current_time(GetCurrentTimeParams())
+        result = get_current_time_sync(GetCurrentTimeParams())
         assert "timestamp" in result
         
         # 测试格式化时间戳
-        result = format_timestamp(FormatTimeParams(timestamp=1234567890.0))
+        result = format_timestamp_sync(FormatTimeParams(timestamp=1234567890.0))
         assert "formatted" in result
         
         # 测试解析时间字符串
-        result = parse_time_string(ParseTimeParams(time_string="2023-01-01 12:00:00"))
+        result = parse_time_string_sync(ParseTimeParams(time_string="2023-01-01 12:00:00"))
         assert "timestamp" in result
         
         logger.info("时间工具测试通过")

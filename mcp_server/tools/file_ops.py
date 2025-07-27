@@ -6,23 +6,20 @@ MCP 服务器文件操作工具
 """
 
 import os
-import json
 import logging
 import shutil
-from typing import Dict, Any, List, Optional
-from pathlib import Path
+from typing import Dict, Any, Optional
 from datetime import datetime
 import pytz
 
 from ..config import config
-from ..security.path_validator import validate_path, is_path_safe, get_safe_filename
+from ..security.path_validator import validate_path
 from ..security.permissions import (
     Permission, AccessLevel, 
-    require_permission, check_permission
+    require_permission
 )
 from ..exceptions import (
-    FileAccessDeniedError, PathTraversalError, 
-    SecurityError, PermissionDeniedError
+    FileAccessDeniedError
 )
 from ..utils import Timer, calculate_file_hash
 

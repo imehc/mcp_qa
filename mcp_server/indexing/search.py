@@ -6,16 +6,13 @@ MCP 服务器高级搜索引擎
 
 import logging
 import re
-from typing import List, Dict, Any, Optional, Tuple, Set
-from datetime import datetime
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from ..config import config
-from ..types import TextChunk, SearchResult
-from ..exceptions import SearchError, IndexNotFoundError
+from ..types import SearchResult
+from ..exceptions import SearchError
 from ..utils import Timer
-from .embeddings import embedding_manager
 from .storage import vector_store
 from .manager import index_manager
 

@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import shutil
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
 from ..config import config
 from ..types import ConversionResult, ConversionMethod

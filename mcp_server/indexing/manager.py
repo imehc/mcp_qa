@@ -8,17 +8,18 @@ MCP 服务器索引管理
 import os
 import logging
 import threading
-from typing import List, Dict, Any, Optional, Set, Tuple
-from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Set
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ..config import config
-from ..types import TextChunk, IndexStatus, FileType
-from ..exceptions import IndexNotFoundError, IndexCorruptedError, ParsingError
+from ..types import TextChunk, IndexStatus
+from ..exceptions import IndexNotFoundError
 from ..utils import Timer, calculate_file_hash
-from .embeddings import embedding_manager, EmbeddingResult
-from .storage import vector_store, VectorStore
+from .embeddings import embedding_manager
+from .storage import VectorStore
+from .cache import file_index_cache, cache_file_index_result, is_file_indexed_and_current
 from ..parsers.base import get_parser_for_file
 
 logger = logging.getLogger(__name__)
@@ -110,13 +111,57 @@ class IndexManager:
             # 解析文档并提取文本块
             all_chunks = []
             processed_files = 0
+            cached_files = 0
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # 提交解析任务
-                future_to_file = {
-                    executor.submit(self._parse_file_safely, file_path): file_path
-                    for file_path in files
-                }
+                future_to_file = {}
+                for file_path in files:
+                    # 优先检查向量索引缓存 - 如果文件已在当前索引中且未修改，跳过
+                    if self._is_file_in_current_index_and_valid(file_path):
+                        cached_files += 1
+                        logger.info(f"使用现有向量索引: {file_path}")
+                        
+                        # 确保在文档跟踪中
+                        if file_path not in self.indexed_documents:
+                            file_hash = calculate_file_hash(file_path)
+                            file_stat = os.stat(file_path)
+                            self.indexed_documents[file_path] = {
+                                "hash": file_hash,
+                                "chunks": 0,  # 会在后续从向量存储获取
+                                "indexed_at": datetime.now().isoformat(),
+                                "file_size": file_stat.st_size
+                            }
+                            self.document_hashes[file_path] = file_hash
+                        
+                        processed_files += 1
+                        continue
+                    
+                    # 检查文件是否已缓存且仍然有效（但不在当前索引中）
+                    elif is_file_indexed_and_current(file_path):
+                        cached_files += 1
+                        logger.info(f"使用缓存的解析结果: {file_path}")
+                        
+                        # 从缓存获取信息并创建虚拟块（实际块会从向量存储加载）
+                        cached_info = file_index_cache.get_cached_file_info(file_path)
+                        if cached_info:
+                            chunks_count = cached_info.get("chunks_count", 0)
+                            file_hash = cached_info.get("file_hash", "")
+                            
+                            # 更新文档跟踪
+                            self.indexed_documents[file_path] = {
+                                "hash": file_hash,
+                                "chunks": chunks_count,
+                                "indexed_at": cached_info.get("indexed_at", datetime.now().isoformat()),
+                                "file_size": cached_info.get("size", 0)
+                            }
+                            self.document_hashes[file_path] = file_hash
+                        
+                        processed_files += 1
+                        continue
+                    
+                    # 需要重新解析的文件
+                    future_to_file[executor.submit(self._parse_file_safely, file_path)] = file_path
                 
                 for future in as_completed(future_to_file):
                     file_path = future_to_file[future]
@@ -143,33 +188,58 @@ class IndexManager:
                                 "stage": "parsing",
                                 "progress": progress * 50,  # 解析占前 50%
                                 "processed_files": processed_files,
-                                "total_files": len(files)
+                                "total_files": len(files),
+                                "cached_files": cached_files
                             })
                         
                         if show_progress and processed_files % 10 == 0:
-                            logger.info(f"已处理 {processed_files}/{len(files)} 个文件")
+                            logger.info(f"已处理 {processed_files}/{len(files)} 个文件 (缓存: {cached_files})")
                             
                     except Exception as e:
                         logger.warning(f"解析 {file_path} 失败: {str(e)}")
+                        processed_files += 1
                         continue
             
-            if not all_chunks:
-                raise ValueError("从任何文件中都未提取到文本块")
-            
-            logger.info(f"从 {len(files)} 个文件中提取了 {len(all_chunks)} 个文本块")
-            
-            # 更新进度
-            with self.lock:
-                self.build_progress.update({
-                    "stage": "embedding",
-                    "progress": 50.0
-                })
-            
-            # 构建向量索引
-            index_result = self.vector_store.build_index(
-                all_chunks,
-                show_progress=show_progress
-            )
+            # 如果有新解析的文件，则构建向量索引
+            if all_chunks:
+                # 更新进度
+                with self.lock:
+                    self.build_progress.update({
+                        "stage": "embedding",
+                        "progress": 50.0
+                    })
+                
+                # 构建向量索引
+                index_result = self.vector_store.build_index(
+                    all_chunks,
+                    show_progress=show_progress
+                )
+                
+                # 缓存新解析的文件索引结果
+                for file_path in future_to_file.values():
+                    if file_path in self.indexed_documents:
+                        file_info = self.indexed_documents[file_path]
+                        cache_file_index_result(
+                            file_path,
+                            {
+                                "success": True,
+                                "total_chunks": file_info["chunks"],
+                                "build_time": index_result.get("build_time", 0.0)
+                            },
+                            chunks_count=file_info["chunks"],
+                            metadata={"file_size": file_info["file_size"]}
+                        )
+            else:
+                # 如果所有文件都来自缓存，直接加载现有索引
+                logger.info("所有文件都来自缓存，加载现有向量索引")
+                if not self.vector_store.load_index():
+                    logger.warning("无法加载现有向量索引，可能需要重建")
+                
+                index_result = {
+                    "success": True,
+                    "from_cache": True,
+                    "cached_files": cached_files
+                }
             
             build_time = timer.stop()
             
@@ -179,9 +249,11 @@ class IndexManager:
                 self.last_build_time = datetime.now()
                 self.build_progress = {"stage": "completed", "progress": 100.0}
                 
+                total_chunks = sum(info.get("chunks", 0) for info in self.indexed_documents.values())
+                
                 self.stats.update({
                     "total_documents": len(self.indexed_documents),
-                    "total_chunks": len(all_chunks),
+                    "total_chunks": total_chunks,
                     "last_updated": self.last_build_time.isoformat(),
                     "build_count": self.stats["build_count"] + 1,
                     "total_build_time": self.stats["total_build_time"] + build_time
@@ -190,14 +262,17 @@ class IndexManager:
             # 保存元数据
             self._save_index_metadata()
             
-            logger.info(f"索引构建成功，耗时 {build_time:.2f} 秒")
+            logger.info(f"索引构建成功，耗时 {build_time:.2f} 秒 (新解析: {len(all_chunks)} 块, 缓存: {cached_files} 文件)")
             
             return {
                 "success": True,
                 "total_files": len(files),
                 "processed_files": processed_files,
-                "total_chunks": len(all_chunks),
+                "cached_files": cached_files,
+                "total_chunks": self.stats["total_chunks"],
+                "new_chunks": len(all_chunks),
                 "build_time": build_time,
+                "cache_hit_rate": cached_files / len(files) if files else 0,
                 "index_result": index_result
             }
             
@@ -231,14 +306,30 @@ class IndexManager:
         try:
             logger.info(f"向索引中添加 {len(file_paths)} 个文档")
             
-            # 筛选需要处理的文件
+            # 筛选需要处理的文件，使用缓存逻辑
             files_to_process = []
+            cached_files = []
             
             for file_path in file_paths:
                 if not os.path.exists(file_path):
                     logger.warning(f"文件未找到: {file_path}")
                     continue
                 
+                # 优先检查向量索引缓存 - 如果文件已在当前索引中且未修改，跳过
+                if self._is_file_in_current_index_and_valid(file_path):
+                    cached_files.append(file_path)
+                    logger.info(f"使用现有向量索引: {file_path}")
+                    continue
+
+                # 检查文件是否已缓存且仍然有效（但不在当前索引中）
+                elif is_file_indexed_and_current(file_path):
+                    # 文件已缓存且未修改，检查是否在当前索引中
+                    if file_path in self.indexed_documents:
+                        cached_files.append(file_path)
+                        logger.info(f"使用缓存的索引: {file_path}")
+                        continue
+                
+                # 检查是否需要处理
                 current_hash = calculate_file_hash(file_path)
                 
                 if file_path not in self.document_hashes:
@@ -249,16 +340,22 @@ class IndexManager:
                     files_to_process.append(file_path)
                     # 首先删除旧版本
                     self.remove_documents([file_path])
+                    # 使文件缓存失效
+                    file_index_cache.invalidate_file_cache(file_path)
             
             if not files_to_process:
                 return {
                     "success": True,
-                    "message": "没有新的或更改的文档需要处理",
-                    "processed_files": 0
+                    "message": f"没有新的或更改的文档需要处理。{len(cached_files)} 个文件使用了缓存。",
+                    "processed_files": 0,
+                    "cached_files": len(cached_files),
+                    "cached_file_list": cached_files
                 }
             
             # 解析新文件
             all_chunks = []
+            processed_files_info = []
+            
             for file_path in files_to_process:
                 try:
                     chunks = self._parse_file_safely(file_path)
@@ -267,13 +364,20 @@ class IndexManager:
                         
                         # 更新跟踪
                         file_hash = calculate_file_hash(file_path)
-                        self.indexed_documents[file_path] = {
+                        file_info = {
                             "hash": file_hash,
                             "chunks": len(chunks),
                             "indexed_at": datetime.now().isoformat(),
                             "file_size": os.path.getsize(file_path)
                         }
+                        self.indexed_documents[file_path] = file_info
                         self.document_hashes[file_path] = file_hash
+                        
+                        processed_files_info.append({
+                            "file_path": file_path,
+                            "chunks_count": len(chunks),
+                            "file_size": file_info["file_size"]
+                        })
                         
                 except Exception as e:
                     logger.warning(f"解析 {file_path} 失败: {str(e)}")
@@ -283,11 +387,25 @@ class IndexManager:
                 return {
                     "success": True,
                     "message": "从新文件中未提取到文本块",
-                    "processed_files": 0
+                    "processed_files": 0,
+                    "cached_files": len(cached_files)
                 }
             
             # 添加到向量存储
             result = self.vector_store.add_documents(all_chunks)
+            
+            # 缓存索引结果
+            for file_info in processed_files_info:
+                cache_file_index_result(
+                    file_info["file_path"],
+                    {
+                        "success": True,
+                        "total_chunks": file_info["chunks_count"],
+                        "build_time": 0.0  # 这里是增量添加，没有整体构建时间
+                    },
+                    chunks_count=file_info["chunks_count"],
+                    metadata={"file_size": file_info["file_size"]}
+                )
             
             # 更新统计信息
             with self.lock:
@@ -300,13 +418,15 @@ class IndexManager:
             # 保存元数据
             self._save_index_metadata()
             
-            logger.info(f"成功添加 {len(files_to_process)} 个文档")
+            logger.info(f"成功添加 {len(files_to_process)} 个文档，{len(cached_files)} 个文件使用了缓存")
             
             return {
                 "success": True,
                 "processed_files": len(files_to_process),
+                "cached_files": len(cached_files),
                 "added_chunks": result.get("added_chunks", 0),
-                "total_chunks": result.get("total_chunks", 0)
+                "total_chunks": result.get("total_chunks", 0),
+                "cache_hit_rate": len(cached_files) / len(file_paths) if file_paths else 0
             }
             
         except Exception as e:
@@ -547,6 +667,43 @@ class IndexManager:
                 outdated.append(file_path)
         
         return outdated
+    
+    def _is_file_in_current_index_and_valid(self, file_path: str) -> bool:
+        """
+        检查文件是否已在当前向量索引中且仍然有效。
+        
+        参数:
+            file_path: 文件路径
+            
+        返回:
+            如果文件在当前索引中且有效则返回True
+        """
+        try:
+            # 检查文件是否在当前索引管理器的文档跟踪中
+            if file_path not in self.indexed_documents:
+                return False
+            
+            # 检查文件是否仍然存在
+            if not os.path.exists(file_path):
+                return False
+            
+            # 检查文件是否被修改
+            current_hash = calculate_file_hash(file_path)
+            stored_hash = self.document_hashes.get(file_path, "")
+            
+            if current_hash != stored_hash:
+                return False
+            
+            # 检查向量存储中是否实际存在该文件的向量
+            if hasattr(self.vector_store, 'has_document'):
+                return self.vector_store.has_document(file_path)
+            
+            # 如果向量存储没有has_document方法，假设文件在跟踪中就是有效的
+            return True
+            
+        except Exception as e:
+            logger.warning(f"检查文件索引状态失败 {file_path}: {e}")
+            return False
     
     def refresh_index(self) -> Dict[str, Any]:
         """

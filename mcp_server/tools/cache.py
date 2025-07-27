@@ -9,8 +9,8 @@ import json
 import pickle
 import hashlib
 import time
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List, Union
+from datetime import datetime
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 import threading
 
@@ -660,34 +660,40 @@ def register_cache_tools(mcp):
     """注册缓存工具到MCP"""
     
     @mcp.tool()
-    async def cache_set(params: dict):
+    def cache_set(params: dict):
         """设置缓存"""
-        return cache_set(CacheSetParams(**params))
+        from .cache import cache_set as cache_set_func
+        return cache_set_func(CacheSetParams(**params))
     
     @mcp.tool()
-    async def cache_get(params: dict):
+    def cache_get(params: dict):
         """获取缓存"""
-        return cache_get(CacheGetParams(**params))
+        from .cache import cache_get as cache_get_func
+        return cache_get_func(CacheGetParams(**params))
     
     @mcp.tool()
-    async def cache_delete(params: dict):
+    def cache_delete(params: dict):
         """删除缓存"""
-        return cache_delete(CacheDeleteParams(**params))
+        from .cache import cache_delete as cache_delete_func
+        return cache_delete_func(CacheDeleteParams(**params))
     
     @mcp.tool()
-    async def cache_list(params: dict):
+    def cache_list(params: dict):
         """列出缓存键"""
-        return cache_list(CacheListParams(**params))
+        from .cache import cache_list as cache_list_func
+        return cache_list_func(CacheListParams(**params))
     
     @mcp.tool()
-    async def cache_stats(params: dict):
+    def cache_stats(params: dict):
         """获取缓存统计"""
-        return cache_stats(CacheStatsParams(**params))
+        from .cache import cache_stats as cache_stats_func
+        return cache_stats_func(CacheStatsParams(**params))
     
     @mcp.tool()
-    async def cleanup_caches(params: dict):
+    def cleanup_caches(params: dict):
         """清理过期缓存"""
-        return cleanup_caches()
+        from .cache import cleanup_caches as cleanup_caches_func
+        return cleanup_caches_func()
 
 
 # 测试函数

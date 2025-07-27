@@ -8,10 +8,9 @@ import logging.handlers
 import os
 import sys
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 import json
 import threading
-from pathlib import Path
 
 from ..config import config
 
@@ -275,7 +274,7 @@ class LogManager:
         cleaned_files = []
         total_size = 0
         
-        log_dir = getattr(Config, 'LOG_DIR', './logs')
+        log_dir = getattr(config.logging, 'LOG_DIR', './logs')
         if not os.path.exists(log_dir):
             return {
                 'cleaned_files': [],
@@ -319,7 +318,7 @@ def setup_logger(name: str, **kwargs) -> logging.Logger:
     """
     设置日志记录器
     
-    Args:
+    参数:
         name: 日志记录器名称
         **kwargs: 配置参数
             - level: 日志级别
@@ -329,7 +328,7 @@ def setup_logger(name: str, **kwargs) -> logging.Logger:
             - file_path: 独立文件路径
             - no_propagate: 是否禁用传播
     
-    Returns:
+    返回:
         配置好的日志记录器
     """
     return _log_manager.get_logger(name, **kwargs)

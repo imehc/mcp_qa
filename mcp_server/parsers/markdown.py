@@ -6,7 +6,7 @@ MCP 服务器 Markdown 文档解析器
 
 import os
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 try:
     import markdown
@@ -52,18 +52,67 @@ class MarkdownParser(TextBasedParser):
         else:
             self.md = None
     
-    def parse(self, file_path: str) -> ParseResult:
+    def parse(self, file_path: str, use_cache: bool = True) -> ParseResult:
         """
         解析 Markdown 文档并提取其内容。
         
         参数:
             file_path: Markdown 文件路径
+            use_cache: 是否使用缓存（默认True）
             
         返回:
             包含提取内容和元数据的 ParseResult
             
         引发:
             ParsingError: 如果 Markdown 解析失败
+        """
+        # 如果启用缓存且支持缓存，先检查缓存
+        if use_cache and self.cache_aware:
+            try:
+                from ..indexing.cache import is_file_indexed_and_current, file_index_cache
+                
+                if is_file_indexed_and_current(file_path):
+                    cached_info = file_index_cache.get_cached_file_info(file_path)
+                    if cached_info and cached_info.get("parse_content"):
+                        logger.info(f"使用Markdown解析缓存: {file_path}")
+                        
+                        # 从缓存构造结果
+                        from ..types import ParserStatus
+                        return ParseResult(
+                            success=True,
+                            file_path=file_path,
+                            file_type=self.file_type,
+                            status=ParserStatus.SUCCESS,
+                            content=cached_info["parse_content"],
+                            chunks=[],  # 空的，因为主要内容来自缓存
+                            metadata={
+                                "from_cache": True,
+                                "cached_at": cached_info.get("indexed_at"),
+                                "file_size": cached_info.get("size", 0),
+                                "chunks_count": cached_info.get("chunks_count", 0),
+                                "parsing_method": "Cached-MarkdownParser",
+                                **(cached_info.get("metadata", {}))
+                            },
+                            parsing_method="Cached-MarkdownParser"
+                        )
+                        
+            except ImportError:
+                logger.debug("缓存模块不可用，执行常规Markdown解析")
+            except Exception as e:
+                logger.warning(f"Markdown缓存检查失败: {e}，执行常规解析")
+        
+        # 缓存未命中或禁用缓存，执行常规解析
+        return self._parse_markdown_content(file_path)
+    
+    def _parse_markdown_content(self, file_path: str) -> ParseResult:
+        """
+        执行Markdown内容的实际解析。
+        
+        参数:
+            file_path: Markdown 文件路径
+            
+        返回:
+            包含提取内容和元数据的 ParseResult
         """
         if markdown is None:
             return self.create_error_result(
@@ -94,8 +143,11 @@ class MarkdownParser(TextBasedParser):
                 "headers": structured_content.get("headers", []),
                 "links": structured_content.get("links", []),
                 "code_blocks": structured_content.get("code_blocks", []),
-                "file_size": os.path.getsize(file_path)
+                "file_size": os.path.getsize(file_path),
+                "parsing_method": "markdown"
             }
+            
+            logger.info(f"Markdown解析完成: {file_path} ({len(metadata['headers'])} 个标题)")
             
             return self.create_success_result(
                 file_path=file_path,

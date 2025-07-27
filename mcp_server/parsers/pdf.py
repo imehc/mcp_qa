@@ -44,18 +44,67 @@ class PDFParser(StructuredParser):
         """
         return os.path.splitext(file_path)[1].lower() in self.supported_extensions
     
-    def parse(self, file_path: str) -> ParseResult:
+    def parse(self, file_path: str, use_cache: bool = True) -> ParseResult:
         """
         解析 PDF 文档并提取其内容。
         
         参数:
             file_path: PDF 文件路径
+            use_cache: 是否使用缓存（默认True）
             
         返回:
             包含提取内容和元数据的 ParseResult
             
         引发:
             ParsingError: 如果 PDF 解析失败
+        """
+        # 如果启用缓存且支持缓存，先检查缓存
+        if use_cache and self.cache_aware:
+            try:
+                from ..indexing.cache import is_file_indexed_and_current, file_index_cache
+                
+                if is_file_indexed_and_current(file_path):
+                    cached_info = file_index_cache.get_cached_file_info(file_path)
+                    if cached_info and cached_info.get("parse_content"):
+                        logger.info(f"使用PDF解析缓存: {file_path}")
+                        
+                        # 从缓存构造结果
+                        from ..types import ParserStatus
+                        return ParseResult(
+                            success=True,
+                            file_path=file_path,
+                            file_type=self.file_type,
+                            status=ParserStatus.SUCCESS,
+                            content=cached_info["parse_content"],
+                            chunks=[],  # 空的，因为主要内容来自缓存
+                            metadata={
+                                "from_cache": True,
+                                "cached_at": cached_info.get("indexed_at"),
+                                "file_size": cached_info.get("size", 0),
+                                "chunks_count": cached_info.get("chunks_count", 0),
+                                "parsing_method": "Cached-PyMuPDF",
+                                **(cached_info.get("metadata", {}))
+                            },
+                            parsing_method="Cached-PyMuPDF"
+                        )
+                        
+            except ImportError:
+                logger.debug("缓存模块不可用，执行常规PDF解析")
+            except Exception as e:
+                logger.warning(f"PDF缓存检查失败: {e}，执行常规解析")
+        
+        # 缓存未命中或禁用缓存，执行常规解析
+        return self._parse_pdf_content(file_path)
+    
+    def _parse_pdf_content(self, file_path: str) -> ParseResult:
+        """
+        执行PDF内容的实际解析。
+        
+        参数:
+            file_path: PDF 文件路径
+            
+        返回:
+            包含提取内容和元数据的 ParseResult
         """
         if fitz is None:
             return self.create_error_result(
@@ -78,8 +127,11 @@ class PDFParser(StructuredParser):
             metadata = {
                 "total_pages": structured_content.get("total_pages", 0),
                 "pages": structured_content.get("pages", []),
-                "file_size": os.path.getsize(file_path)
+                "file_size": os.path.getsize(file_path),
+                "parsing_method": "PyMuPDF"
             }
+            
+            logger.info(f"PDF解析完成: {file_path} ({metadata['total_pages']} 页)")
             
             return self.create_success_result(
                 file_path=file_path,

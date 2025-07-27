@@ -47,7 +47,7 @@ class EmbeddingModelManager:
     
     def __init__(self):
         """初始化嵌入模型管理器。"""
-        self.models: Dict[str, SentenceTransformer] = {}
+        self.models: Dict[str, SentenceTransformer] = {} # pyright: ignore[reportInvalidTypeForm]
         self.model_info: Dict[str, EmbeddingModelInfo] = {}
         self.current_model_name: str = config.embedding.DEFAULT_MODEL
         self.lock = threading.Lock()
@@ -113,7 +113,7 @@ class EmbeddingModelManager:
                     description="未知模型"
                 )
     
-    def load_model(self, model_name: Optional[str] = None) -> SentenceTransformer:
+    def load_model(self, model_name: Optional[str] = None) -> SentenceTransformer: # pyright: ignore[reportInvalidTypeForm]
         """
         加载嵌入模型。
         

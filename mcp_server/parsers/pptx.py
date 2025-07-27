@@ -5,7 +5,7 @@ PowerPoint文档解析器
 
 import os
 import logging
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -37,14 +37,14 @@ class PowerPointParser:
         """
         解析PowerPoint文件
         
-        Args:
+        参数:
             file_path: PowerPoint文件路径
             **kwargs: 其他参数
                 - extract_notes: 是否提取备注，默认True
                 - extract_images: 是否提取图片信息，默认True
                 - include_slide_numbers: 是否包含幻灯片编号，默认True
         
-        Returns:
+        返回:
             解析结果字典
         """
         if not os.path.exists(file_path):
