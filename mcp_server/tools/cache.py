@@ -661,13 +661,13 @@ def register_cache_tools(mcp):
     
     @mcp.tool()
     def cache_set(params: dict):
-        """设置缓存"""
+        """设置缓存数据 - 用于存储应用程序数据，不用于搜索文档内容"""
         from .cache import cache_set as cache_set_func
         return cache_set_func(CacheSetParams(**params))
     
     @mcp.tool()
     def cache_get(params: dict):
-        """获取缓存"""
+        """获取应用程序缓存数据：用于管理内存中的缓存数据。注意：这不是用于查看文件内容或回答“文件讲了什么”类型的问题。"""
         from .cache import cache_get as cache_get_func
         return cache_get_func(CacheGetParams(**params))
     
@@ -685,12 +685,12 @@ def register_cache_tools(mcp):
     
     @mcp.tool()
     def cache_stats(params: dict):
-        """获取缓存统计"""
+        """查看系统缓存统计：获取缓存系统的性能指标和统计信息。注意：这不是用于查看文件内容或回答“文件讲了什么”类型的问题。"""
         from .cache import cache_stats as cache_stats_func
         return cache_stats_func(CacheStatsParams(**params))
     
     @mcp.tool()
-    def cleanup_caches(params: dict):
+    def cleanup_caches(params: dict = None):
         """清理过期缓存"""
         from .cache import cleanup_caches as cleanup_caches_func
         return cleanup_caches_func()

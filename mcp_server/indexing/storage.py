@@ -256,7 +256,34 @@ class VectorStore:
         """
         if not self.index_loaded or self.faiss_index is None:
             if not self.load_index():
-                raise IndexNotFoundError()
+                # 如果索引加载失败，尝试自动构建索引
+                logger.info("索引不存在，尝试自动构建索引")
+                try:
+                    # 导入这里避免循环依赖
+                    from .manager import index_manager
+                    
+                    # 检查是否有默认文档目录
+                    from ..config import config
+                    docs_dir = getattr(config.server, 'DEFAULT_DOCS_DIR', None)
+                    if not docs_dir:
+                        # 使用项目根目录下的 docs 目录
+                        import os
+                        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                        docs_dir = os.path.join(project_root, "docs")
+                    
+                    if os.path.exists(docs_dir):
+                        logger.info(f"正在从 {docs_dir} 自动构建索引")
+                        index_manager.build_index_from_directory(docs_dir)
+                        
+                        # 重新尝试加载索引
+                        if not self.load_index():
+                            raise IndexNotFoundError("自动构建索引后仍无法加载索引")
+                    else:
+                        raise IndexNotFoundError(f"索引不存在且文档目录 {docs_dir} 不存在")
+                        
+                except Exception as e:
+                    logger.error(f"自动构建索引失败: {str(e)}")
+                    raise IndexNotFoundError("索引不存在且自动构建失败")
         
         timer = Timer()
         timer.start()

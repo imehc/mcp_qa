@@ -10,7 +10,10 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Union
 import time
 import threading
+import os
+import pickle
 from dataclasses import dataclass
+from pathlib import Path
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -52,8 +55,9 @@ class EmbeddingModelManager:
         self.current_model_name: str = config.embedding.DEFAULT_MODEL
         self.lock = threading.Lock()
         
-        # 初始化可用模型信息
-        self._initialize_model_info()
+        # 模型缓存目录
+        self.cache_dir = Path(config.index.INDEX_DIR) / "model_cache"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # 统计信息
         self.embedding_stats = {
@@ -63,6 +67,12 @@ class EmbeddingModelManager:
             "average_time_per_text": 0.0,
             "models_loaded": 0
         }
+        
+        # 初始化可用模型信息
+        self._initialize_model_info()
+        
+        # 在启动时尝试从缓存加载默认模型
+        self._load_cached_models()
     
     def _initialize_model_info(self) -> None:
         """初始化可用模型的信息。"""
@@ -113,6 +123,108 @@ class EmbeddingModelManager:
                     description="未知模型"
                 )
     
+    def _get_model_cache_path(self, model_name: str) -> Path:
+        """获取模型缓存文件路径。"""
+        # 将模型名称转换为安全的文件名
+        safe_name = model_name.replace("/", "_").replace("\\", "_")
+        return self.cache_dir / f"{safe_name}.cache"
+    
+    def _save_model_to_cache(self, model_name: str, model: SentenceTransformer) -> None: # pyright: ignore[reportInvalidTypeForm]
+        """将模型保存到磁盘缓存。"""
+        try:
+            cache_path = self._get_model_cache_path(model_name)
+            
+            # 保存模型到指定目录
+            model_dir = self.cache_dir / f"{model_name.replace('/', '_').replace('\\', '_')}_model"
+            model.save(str(model_dir))
+            
+            # 保存元数据
+            metadata = {
+                "model_name": model_name,
+                "cache_time": time.time(),
+                "model_dir": str(model_dir),
+                "dimension": model.get_sentence_embedding_dimension() if hasattr(model, 'get_sentence_embedding_dimension') else 384
+            }
+            
+            with open(cache_path, 'wb') as f:
+                pickle.dump(metadata, f)
+            
+            logger.info(f"模型 {model_name} 已保存到缓存: {cache_path}")
+            
+        except Exception as e:
+            logger.warning(f"保存模型缓存失败 {model_name}: {str(e)}")
+    
+    def _load_model_from_cache(self, model_name: str) -> Optional[SentenceTransformer]: # pyright: ignore[reportInvalidTypeForm]
+        """从磁盘缓存加载模型。"""
+        try:
+            cache_path = self._get_model_cache_path(model_name)
+            
+            if not cache_path.exists():
+                return None
+            
+            # 加载元数据
+            with open(cache_path, 'rb') as f:
+                metadata = pickle.load(f)
+            
+            model_dir = Path(metadata["model_dir"])
+            if not model_dir.exists():
+                logger.warning(f"模型目录不存在: {model_dir}")
+                return None
+            
+            # 加载模型
+            if SentenceTransformer is None:
+                return None
+                
+            model = SentenceTransformer(str(model_dir))
+            
+            logger.info(f"从缓存加载模型 {model_name}: {cache_path}")
+            return model
+            
+        except Exception as e:
+            logger.warning(f"从缓存加载模型失败 {model_name}: {str(e)}")
+            return None
+    
+    def _load_cached_models(self) -> None:
+        """启动时加载缓存的模型。"""
+        try:
+            # 尝试加载默认模型
+            if self.current_model_name:
+                cached_model = self._load_model_from_cache(self.current_model_name)
+                if cached_model:
+                    with self.lock:
+                        self.models[self.current_model_name] = cached_model
+                        self.embedding_stats["models_loaded"] += 1
+                    logger.info(f"启动时从缓存加载默认模型: {self.current_model_name}")
+        except Exception as e:
+            logger.warning(f"启动时加载缓存模型失败: {str(e)}")
+    
+    def _cleanup_old_cache(self, max_age_days: int = 30) -> None:
+        """清理旧的缓存文件。"""
+        try:
+            current_time = time.time()
+            max_age_seconds = max_age_days * 24 * 3600
+            
+            for cache_file in self.cache_dir.glob("*.cache"):
+                try:
+                    with open(cache_file, 'rb') as f:
+                        metadata = pickle.load(f)
+                    
+                    age = current_time - metadata.get("cache_time", 0)
+                    if age > max_age_seconds:
+                        # 删除缓存文件和模型目录
+                        cache_file.unlink()
+                        model_dir = Path(metadata.get("model_dir", ""))
+                        if model_dir.exists():
+                            import shutil
+                            shutil.rmtree(model_dir)
+                        logger.info(f"清理旧缓存: {cache_file}")
+                        
+                except Exception as e:
+                    logger.warning(f"清理缓存文件失败 {cache_file}: {str(e)}")
+                    
+        except Exception as e:
+            logger.warning(f"清理缓存失败: {str(e)}")
+    
     def load_model(self, model_name: Optional[str] = None) -> SentenceTransformer: # pyright: ignore[reportInvalidTypeForm]
         """
         加载嵌入模型。
@@ -137,12 +249,20 @@ class EmbeddingModelManager:
         with self.lock:
             # 如果模型已加载，则返回缓存的模型
             if model_name in self.models:
-                logger.debug(f"使用缓存模型: {model_name}")
+                logger.debug(f"使用内存缓存模型: {model_name}")
                 return self.models[model_name]
+            
+            # 尝试从磁盘缓存加载
+            cached_model = self._load_model_from_cache(model_name)
+            if cached_model:
+                self.models[model_name] = cached_model
+                self.embedding_stats["models_loaded"] += 1
+                logger.info(f"从磁盘缓存加载模型: {model_name}")
+                return cached_model
             
             # 加载新模型
             try:
-                logger.info(f"正在加载嵌入模型: {model_name}")
+                logger.info(f"正在下载并加载嵌入模型: {model_name}")
                 timer = Timer()
                 timer.start()
                 
@@ -151,9 +271,12 @@ class EmbeddingModelManager:
                 load_time = timer.stop()
                 logger.info(f"模型 {model_name} 在 {load_time:.2f} 秒内加载完成")
                 
-                # 缓存模型
+                # 缓存模型到内存
                 self.models[model_name] = model
                 self.embedding_stats["models_loaded"] += 1
+                
+                # 保存到磁盘缓存
+                self._save_model_to_cache(model_name, model)
                 
                 # 如果可用，使用实际维度更新模型信息
                 if hasattr(model, 'get_sentence_embedding_dimension'):
@@ -419,6 +542,100 @@ class EmbeddingModelManager:
         with self.lock:
             self.models.clear()
             logger.info("已卸载所有模型")
+    
+    def clear_model_cache(self, model_name: Optional[str] = None) -> None:
+        """
+        清理模型缓存。
+        
+        参数:
+            model_name: 要清理的模型名称，如果为 None 则清理所有缓存
+        """
+        try:
+            if model_name:
+                # 清理特定模型的缓存
+                cache_path = self._get_model_cache_path(model_name)
+                if cache_path.exists():
+                    with open(cache_path, 'rb') as f:
+                        metadata = pickle.load(f)
+                    
+                    # 删除缓存文件
+                    cache_path.unlink()
+                    
+                    # 删除模型目录
+                    model_dir = Path(metadata.get("model_dir", ""))
+                    if model_dir.exists():
+                        import shutil
+                        shutil.rmtree(model_dir)
+                    
+                    logger.info(f"清理模型缓存: {model_name}")
+            else:
+                # 清理所有缓存
+                for cache_file in self.cache_dir.glob("*.cache"):
+                    try:
+                        with open(cache_file, 'rb') as f:
+                            metadata = pickle.load(f)
+                        
+                        # 删除缓存文件
+                        cache_file.unlink()
+                        
+                        # 删除模型目录
+                        model_dir = Path(metadata.get("model_dir", ""))
+                        if model_dir.exists():
+                            import shutil
+                            shutil.rmtree(model_dir)
+                    except Exception as e:
+                        logger.warning(f"清理缓存文件失败 {cache_file}: {str(e)}")
+                
+                logger.info("清理所有模型缓存")
+                
+        except Exception as e:
+            logger.error(f"清理缓存失败: {str(e)}")
+
+    def get_cache_info(self) -> Dict[str, Any]:
+        """
+        获取缓存信息。
+        
+        返回:
+            包含缓存统计信息的字典
+        """
+        cache_info = {
+            "cache_dir": str(self.cache_dir),
+            "cached_models": [],
+            "total_cache_size": 0,
+            "memory_loaded_models": list(self.models.keys())
+        }
+        
+        try:
+            for cache_file in self.cache_dir.glob("*.cache"):
+                try:
+                    with open(cache_file, 'rb') as f:
+                        metadata = pickle.load(f)
+                    
+                    model_dir = Path(metadata.get("model_dir", ""))
+                    cache_size = 0
+                    if model_dir.exists():
+                        for file_path in model_dir.rglob("*"):
+                            if file_path.is_file():
+                                cache_size += file_path.stat().st_size
+                    
+                    cache_info["cached_models"].append({
+                        "model_name": metadata.get("model_name", "unknown"),
+                        "cache_time": metadata.get("cache_time", 0),
+                        "cache_size_mb": cache_size / (1024 * 1024),
+                        "dimension": metadata.get("dimension", "unknown")
+                    })
+                    
+                    cache_info["total_cache_size"] += cache_size
+                    
+                except Exception as e:
+                    logger.warning(f"读取缓存信息失败 {cache_file}: {str(e)}")
+            
+            cache_info["total_cache_size_mb"] = cache_info["total_cache_size"] / (1024 * 1024)
+            
+        except Exception as e:
+            logger.warning(f"获取缓存信息失败: {str(e)}")
+        
+        return cache_info
     
     def get_memory_usage(self) -> Dict[str, Any]:
         """

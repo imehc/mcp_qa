@@ -3,6 +3,7 @@ MCP服务器主模块
 集成所有功能并提供统一的服务器入口
 """
 
+import os
 from typing import Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
@@ -12,6 +13,10 @@ from starlette.requests import Request
 from starlette.routing import Route, Mount
 from starlette.responses import JSONResponse, Response
 import uvicorn
+
+# 设置环境变量以避免警告
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["FAISS_OPT_LEVEL"] = "generic"  # 抑制FAISS GPU警告
 
 from .config import config
 from .monitoring.logger import setup_logger
