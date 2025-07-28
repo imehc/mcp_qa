@@ -9,7 +9,7 @@ VENV_DIR = .venv
 LOG_DIR = logs
 
 # 模块配置
-MODULES = mcp_server ollama
+MODULES = mcp_server mcp_ui ollama
 CURRENT_MODULE ?= mcp_server
 
 # mcp_server 模块配置
@@ -19,6 +19,13 @@ MCP_SERVER_HOST ?= 0.0.0.0
 MCP_SERVER_PORT ?= 8020
 MCP_SERVER_DEBUG ?= false
 MCP_SERVER_ALLOWED_DIRS ?= docs
+
+# mcp_ui 模块配置
+MCP_UI_PID_FILE = .mcp_ui.pid
+MCP_UI_LOG_FILE = logs/mcp_ui_$(shell date +%Y%m%d_%H%M%S).log
+MCP_UI_HOST ?= 0.0.0.0
+MCP_UI_PORT ?= 8000
+MCP_UI_DEBUG ?= false
 
 # ollama 模块配置 (仅限 macOS)
 OLLAMA_AVAILABLE := $(shell command -v brew >/dev/null 2>&1 && echo true || echo false)
@@ -134,6 +141,8 @@ check-running: ## 检查服务器是否运行
 start: ## 启动当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-start; \
+	elif [ "$(CURRENT_MODULE)" = "mcp_ui" ]; then \
+		$(MAKE) mcp-ui-start; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-start; \
 	else \
@@ -144,6 +153,8 @@ start: ## 启动当前模块
 stop: ## 停止当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-stop; \
+	elif [ "$(CURRENT_MODULE)" = "mcp_ui" ]; then \
+		$(MAKE) mcp-ui-stop; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-stop; \
 	else \
@@ -154,6 +165,8 @@ stop: ## 停止当前模块
 restart: ## 重启当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-restart; \
+	elif [ "$(CURRENT_MODULE)" = "mcp_ui" ]; then \
+		$(MAKE) mcp-ui-restart; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-restart; \
 	else \
@@ -164,6 +177,8 @@ restart: ## 重启当前模块
 status: ## 查看当前模块状态
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-status; \
+	elif [ "$(CURRENT_MODULE)" = "mcp_ui" ]; then \
+		$(MAKE) mcp-ui-status; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-status; \
 	else \
@@ -174,6 +189,8 @@ status: ## 查看当前模块状态
 dev: ## 以开发模式启动当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-dev; \
+	elif [ "$(CURRENT_MODULE)" = "mcp_ui" ]; then \
+		$(MAKE) mcp-ui-dev; \
 	else \
 		echo "$(RED)❌ 未知模块: $(CURRENT_MODULE)$(NC)"; \
 		exit 1; \
@@ -182,6 +199,8 @@ dev: ## 以开发模式启动当前模块
 logs: ## 查看当前模块日志
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-logs; \
+	elif [ "$(CURRENT_MODULE)" = "mcp_ui" ]; then \
+		$(MAKE) mcp-ui-logs; \
 	else \
 		echo "$(RED)❌ 未知模块: $(CURRENT_MODULE)$(NC)"; \
 		exit 1; \
@@ -564,6 +583,148 @@ ollama-diagnose: ## 诊断 ollama 服务问题 (仅限 macOS)
 	else \
 		echo "$(YELLOW)Ollama 命令不在 PATH 中$(NC)"; \
 	fi
+
+# =============================================================================
+# MCP UI 模块特定命令
+# =============================================================================
+
+mcp-ui-start: setup-dirs ## 启动 mcp_ui 模块
+	@echo "$(BLUE)正在启动 MCP UI 模块...$(NC)"
+	@echo "$(CYAN)配置: Host=$(MCP_UI_HOST), Port=$(MCP_UI_PORT), Debug=$(MCP_UI_DEBUG)$(NC)"
+	@# 检查是否已经在运行
+	@if [ -f $(MCP_UI_PID_FILE) ]; then \
+		PID=$$(cat $(MCP_UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(YELLOW)MCP UI 已经在运行 (PID: $$PID)$(NC)"; \
+			echo "$(GREEN)地址: http://$(MCP_UI_HOST):$(MCP_UI_PORT)$(NC)"; \
+		else \
+			echo "$(YELLOW)清理过期的PID文件$(NC)"; \
+			rm -f $(MCP_UI_PID_FILE); \
+			$(MAKE) _do-mcp-ui-start; \
+		fi \
+	else \
+		$(MAKE) _do-mcp-ui-start; \
+	fi
+
+_do-mcp-ui-start: ## 内部UI启动命令
+	@# 检查端口是否被占用
+	@PORT_IN_USE=$$(lsof -i :$(MCP_UI_PORT) 2>/dev/null); \
+	if [ -n "$$PORT_IN_USE" ]; then \
+		echo "$(RED)❌ 端口 $(MCP_UI_PORT) 已被其他进程占用:$(NC)"; \
+		echo "$$PORT_IN_USE"; \
+		PID_FROM_PORT=$$(echo "$$PORT_IN_USE" | awk 'NR==2 {print $$2}'); \
+		echo "$(RED)请先停止占用端口的进程: kill $$PID_FROM_PORT$(NC)"; \
+		exit 1; \
+	fi
+	@# 检查MCP服务器是否运行
+	@if ! $(MAKE) mcp-server-status > /dev/null 2>&1; then \
+		echo "$(YELLOW)MCP服务器未运行，正在启动...$(NC)"; \
+		$(MAKE) mcp-server-start; \
+	fi
+	@# 启动UI服务
+	@echo "$(BLUE)启动 MCP UI...$(NC)"
+	@UI_HOST=$(MCP_UI_HOST) UI_PORT=$(MCP_UI_PORT) UI_DEBUG=$(MCP_UI_DEBUG) \
+		nohup $(UV_RUN) python start_ui.py > $(MCP_UI_LOG_FILE) 2>&1 & echo $$! > $(MCP_UI_PID_FILE)
+	@sleep 3
+	@# 验证启动是否成功
+	@if [ -f $(MCP_UI_PID_FILE) ]; then \
+		PID=$$(cat $(MCP_UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(GREEN)✅ MCP UI 启动成功!$(NC)"; \
+			echo "$(GREEN)PID: $$PID$(NC)"; \
+			echo "$(GREEN)地址: http://$(MCP_UI_HOST):$(MCP_UI_PORT)$(NC)"; \
+			echo "$(GREEN)日志: $(MCP_UI_LOG_FILE)$(NC)"; \
+		else \
+			echo "$(RED)❌ MCP UI 启动失败$(NC)"; \
+			echo "$(YELLOW)查看日志获取详细错误信息: make mcp-ui-logs$(NC)"; \
+			if [ -f $(MCP_UI_LOG_FILE) ]; then \
+				echo "$(RED)最近的错误日志:$(NC)"; \
+				tail -n 10 $(MCP_UI_LOG_FILE) | sed 's/^/  /'; \
+			fi; \
+			rm -f $(MCP_UI_PID_FILE); \
+			exit 1; \
+		fi \
+	else \
+		echo "$(RED)❌ 无法获取进程ID$(NC)"; \
+		exit 1; \
+	fi
+
+mcp-ui-stop: ## 停止 mcp_ui 模块
+	@if [ -f $(MCP_UI_PID_FILE) ]; then \
+		PID=$$(cat $(MCP_UI_PID_FILE)); \
+		echo "$(YELLOW)正在停止 MCP UI (PID: $$PID)...$(NC)"; \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			kill $$PID; \
+			sleep 2; \
+			if ps -p $$PID > /dev/null 2>&1; then \
+				echo "$(YELLOW)强制停止 MCP UI...$(NC)"; \
+				kill -9 $$PID; \
+			fi; \
+			echo "$(GREEN)✅ MCP UI 已停止$(NC)"; \
+		else \
+			echo "$(YELLOW)MCP UI 未运行$(NC)"; \
+		fi; \
+		rm -f $(MCP_UI_PID_FILE); \
+	else \
+		echo "$(YELLOW)MCP UI 未运行$(NC)"; \
+	fi
+
+mcp-ui-restart: ## 重启 mcp_ui 模块
+	@echo "$(BLUE)正在重启 MCP UI...$(NC)"
+	@$(MAKE) mcp-ui-stop
+	@sleep 1
+	@$(MAKE) mcp-ui-start
+
+mcp-ui-status: ## 查看 mcp_ui 模块状态
+	@if [ -f $(MCP_UI_PID_FILE) ]; then \
+		PID=$$(cat $(MCP_UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(GREEN)✅ MCP UI 正在运行$(NC)"; \
+			echo "$(GREEN)PID: $$PID$(NC)"; \
+			echo "$(GREEN)地址: http://$(MCP_UI_HOST):$(MCP_UI_PORT)$(NC)"; \
+			echo "$(GREEN)运行时间: $$(ps -o etime= -p $$PID | tr -d ' ')$(NC)"; \
+			echo "$(GREEN)内存使用: $$(ps -o rss= -p $$PID | tr -d ' ') KB$(NC)"; \
+		else \
+			echo "$(RED)❌ MCP UI 未运行$(NC)"; \
+			rm -f $(MCP_UI_PID_FILE); \
+		fi \
+	else \
+		echo "$(RED)❌ MCP UI 未运行$(NC)"; \
+	fi
+
+mcp-ui-logs: ## 查看 mcp_ui 模块日志
+	@if [ -f $(MCP_UI_LOG_FILE) ]; then \
+		echo "$(BLUE)显示 MCP UI 日志 (按 Ctrl+C 退出):$(NC)"; \
+		tail -f $(MCP_UI_LOG_FILE); \
+	else \
+		echo "$(RED)❌ 日志文件不存在: $(MCP_UI_LOG_FILE)$(NC)"; \
+	fi
+
+mcp-ui-dev: setup-dirs ## 以开发模式启动 mcp_ui 模块
+	@echo "$(BLUE)正在以开发模式启动 MCP UI...$(NC)"
+	@echo "$(CYAN)配置: Host=$(MCP_UI_HOST), Port=$(MCP_UI_PORT), Debug=true$(NC)"
+	@echo "$(YELLOW)按 Ctrl+C 停止服务器$(NC)"
+	@# 检查端口是否被占用
+	@PORT_IN_USE=$$(lsof -i :$(MCP_UI_PORT) 2>/dev/null); \
+	if [ -n "$$PORT_IN_USE" ]; then \
+		echo "$(RED)❌ 端口 $(MCP_UI_PORT) 已被占用:$(NC)"; \
+		echo "$$PORT_IN_USE"; \
+		exit 1; \
+	fi
+	@# 确保MCP服务器运行
+	@if ! $(MAKE) mcp-server-status > /dev/null 2>&1; then \
+		echo "$(YELLOW)MCP服务器未运行，正在启动...$(NC)"; \
+		$(MAKE) mcp-server-start; \
+	fi
+	@UI_HOST=$(MCP_UI_HOST) UI_PORT=$(MCP_UI_PORT) UI_DEBUG=true \
+		$(UV_RUN) python start_ui.py
+
+ui-start: mcp-ui-start ## ui-start别名
+ui-stop: mcp-ui-stop ## ui-stop别名  
+ui-restart: mcp-ui-restart ## ui-restart别名
+ui-status: mcp-ui-status ## ui-status别名
+ui-logs: mcp-ui-logs ## ui-logs别名
+ui-dev: mcp-ui-dev ## ui-dev别名
 
 build: ## 构建项目
 	@echo "$(BLUE)正在构建项目...$(NC)"
