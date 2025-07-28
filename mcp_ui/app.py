@@ -11,7 +11,8 @@ import chainlit as cl
 from chainlit.types import AskFileResponse
 import aiofiles
 
-from .clients import mcp_client, ollama_client
+from .clients import unified_mcp_client, unified_model_client
+from .clients.client_manager import initialize_all_clients
 from .config import UIConfig, SystemPrompts
 from .handlers import command_registry
 from .utils import get_logger, ui_logger
@@ -28,32 +29,49 @@ async def on_chat_start():
     cl.user_session.set("conversation_history", [])
     cl.user_session.set("knowledge_base", {})
     cl.user_session.set("current_model", UIConfig.DEFAULT_MODEL)
+    cl.user_session.set("current_provider", UIConfig.DEFAULT_PROVIDER)
+    
+    # 初始化所有客户端
+    await initialize_all_clients()
     
     # 检查服务状态
-    mcp_healthy = await mcp_client.health_check()
-    ollama_healthy = await ollama_client.health_check()
+    health_results = await unified_mcp_client.health_check_all()
+    model_health = await unified_model_client.health_check_all()
     
-    if not mcp_healthy:
-        await cl.Message(content="⚠️ MCP服务器连接失败，部分功能可能不可用").send()
-        logger.warning("MCP服务器连接失败")
+    # 检查是否有可用的服务
+    if not any(health_results.values()):
+        await cl.Message(content="⚠️ 所有MCP服务器连接失败，部分功能可能不可用").send()
+        logger.warning("所有MCP服务器连接失败")
     
-    if not ollama_healthy:
-        await cl.Message(content="⚠️ Ollama服务连接失败，AI功能可能不可用").send()
-        logger.warning("Ollama服务连接失败")
+    if not any(model_health.values()):
+        await cl.Message(content="⚠️ 所有模型服务连接失败，AI功能不可用").send()
+        logger.warning("所有模型服务连接失败")
     
     # 获取可用模型并让用户选择
-    if ollama_healthy:
-        models = await ollama_client.list_models()
-        if models:
-            model_options = [cl.SelectOption(value=model, label=model) for model in models]
+    available_models = await unified_model_client.list_all_models()
+    if available_models:
+        # 构建模型选项
+        model_options = []
+        for adapter_name, models in available_models.items():
+            if models:  # 如果该适配器有可用模型
+                provider = unified_model_client.get_adapter(adapter_name).provider
+                for model in models[:3]:  # 限制每个提供商最多3个模型
+                    model_options.append(cl.SelectOption(
+                        value=f"{adapter_name}:{model}",
+                        label=f"{provider} - {model}"
+                    ))
+        
+        if model_options:
             selected_model = await cl.AskSelectMessage(
-                content="🤖 请选择要使用的本地模型：",
+                content="🤖 请选择要使用的模型：",
                 options=model_options,
                 timeout=30
             ).send()
             if selected_model:
-                cl.user_session.set("current_model", selected_model["value"])
-                logger.info(f"用户选择模型: {selected_model['value']}")
+                adapter_name, model_name = selected_model["value"].split(":", 1)
+                cl.user_session.set("current_model", model_name)
+                cl.user_session.set("current_adapter", adapter_name)
+                logger.info(f"用户选择模型: {adapter_name} - {model_name}")
     
     # 发送欢迎消息
     welcome_msg = """# 🤖 智能知识库助手
@@ -63,7 +81,8 @@ async def on_chat_start():
 ## 🚀 功能特性
 - 📁 **文档解析**: 支持PDF、Word、Excel、PPT、Markdown等格式
 - 🔍 **语义搜索**: 基于向量相似度的智能搜索
-- 🧠 **本地模型**: 集成Ollama本地大语言模型
+- 🧠 **多模型支持**: 集成Ollama本地模型和远程API模型
+- 🌐 **远程MCP**: 支持本地和远程MCP工具服务器
 - 📊 **过程可视化**: 实时展示思考和处理过程
 - 🛠️ **MCP工具**: 强大的模块化工具集
 
@@ -72,6 +91,13 @@ async def on_chat_start():
 2. **构建索引**: 使用 `/build` 命令构建文档索引
 3. **智能问答**: 直接提问，系统会自动搜索相关内容并回答
 4. **工具调用**: 使用 `/help` 查看所有可用命令
+
+## 🔧 支持的模型提供商
+- **Ollama**: 本地大语言模型
+- **OpenAI**: GPT系列模型
+- **Anthropic**: Claude系列模型
+- **Google**: Gemini系列模型
+- **Azure**: Azure OpenAI服务
 
 开始对话吧！ 🎉"""
     
@@ -134,7 +160,7 @@ async def handle_qa(question: str):
     try:
         # 1. 搜索相关文档
         await thinking_msg.update(content="🔍 正在搜索相关文档...")
-        search_result = await mcp_client.search_documents(question, top_k=UIConfig.DEFAULT_SEARCH_K)
+        search_result = await unified_mcp_client.search_documents(question, top_k=UIConfig.DEFAULT_SEARCH_K)
         
         # 2. 构建上下文
         context = ""
@@ -157,6 +183,7 @@ async def handle_qa(question: str):
         # 3. 生成回答
         await thinking_msg.update(content="🧠 正在生成回答...")
         
+        current_adapter = cl.user_session.get("current_adapter")
         current_model = cl.user_session.get("current_model", UIConfig.DEFAULT_MODEL)
         
         # 构建提示词
@@ -167,11 +194,11 @@ async def handle_qa(question: str):
 
 请基于上述文档内容回答问题。如果文档中没有相关信息，请明确说明。"""
         
-        # 调用本地模型
+        # 调用统一模型客户端
         model_start_time = time.time()
-        response = await ollama_client.generate(
-            model=current_model,
+        response = await unified_model_client.generate(
             prompt=user_prompt,
+            model_name=current_adapter,
             system=SystemPrompts.QA_SYSTEM_PROMPT,
             temperature=UIConfig.TEMPERATURE,
             max_tokens=UIConfig.MAX_TOKENS
@@ -180,16 +207,16 @@ async def handle_qa(question: str):
         
         # 记录模型调用
         ui_logger.log_model_call(
-            model=current_model,
+            model=f"{response.provider}:{response.model}",
             prompt_length=len(user_prompt),
-            response_length=len(response),
+            response_length=len(response.content),
             duration=model_duration
         )
         
         # 4. 构建最终回答
         total_duration = time.time() - start_time
         
-        final_content = f"## 💡 回答\n\n{response}"
+        final_content = f"## 💡 回答\n\n{response.content}"
         
         # 添加参考文档信息
         if context_sources:
@@ -199,7 +226,7 @@ async def handle_qa(question: str):
                 final_content += f"{source['content']}\n\n"
         
         # 添加统计信息
-        final_content += f"\n---\n⏱️ 总用时: {total_duration:.2f}秒 | 🤖 模型: {current_model}"
+        final_content += f"\n---\n⏱️ 总用时: {total_duration:.2f}秒 | 🤖 模型: {response.provider} - {response.model}"
         
         await thinking_msg.update(content=final_content)
         
@@ -207,10 +234,10 @@ async def handle_qa(question: str):
         history = cl.user_session.get("conversation_history", [])
         history.append({
             "question": question,
-            "answer": response,
+            "answer": response.content,
             "sources": context_sources,
             "timestamp": time.time(),
-            "model": current_model,
+            "model": f"{response.provider}:{response.model}",
             "duration": total_duration
         })
         cl.user_session.set("conversation_history", history)
@@ -258,7 +285,7 @@ async def on_file_upload(files: List[AskFileResponse]):
             ui_logger.log_file_operation("upload", str(file_path), True)
             
             # 自动解析文档
-            parse_result = await mcp_client.parse_document(str(file_path))
+            parse_result = await unified_mcp_client.parse_document(str(file_path))
             if "error" not in parse_result:
                 logger.info(f"文档上传并解析成功: {file.name}")
             else:

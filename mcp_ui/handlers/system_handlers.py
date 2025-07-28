@@ -6,7 +6,7 @@ import time
 from typing import List
 import chainlit as cl
 from .base import BaseCommandHandler, command_registry
-from ..clients import mcp_client, ollama_client
+from ..clients import unified_mcp_client, unified_model_client
 from ..config.settings import UIConfig
 from ..utils.logger import get_logger, ui_logger
 
@@ -27,22 +27,33 @@ class ModelsCommandHandler(BaseCommandHandler):
         ui_logger.log_user_action("list_models")
         
         # 获取当前选择的模型
+        current_adapter = cl.user_session.get("current_adapter")
         current_model = cl.user_session.get("current_model", UIConfig.DEFAULT_MODEL)
         
         try:
-            # 获取可用模型
-            models = await ollama_client.list_models()
+            # 获取所有可用模型
+            available_models = await unified_model_client.list_all_models()
             
-            if models:
+            if available_models:
                 content = "🤖 **可用模型列表**:\n\n"
-                for model in models:
-                    marker = "✅" if model == current_model else "⚪"
-                    content += f"{marker} {model}\n"
                 
-                content += f"\n**当前使用**: {current_model}\n\n"
+                for adapter_name, models in available_models.items():
+                    if not models:
+                        continue
+                        
+                    adapter = unified_model_client.get_adapter(adapter_name)
+                    provider = adapter.provider if adapter else "unknown"
+                    
+                    content += f"**{provider.upper()}**:\n"
+                    for model in models:
+                        marker = "✅" if (adapter_name == current_adapter and model == current_model) else "⚪"
+                        content += f"{marker} {model}\n"
+                    content += "\n"
+                
+                content += f"**当前使用**: {unified_model_client.get_adapter(current_adapter).provider if current_adapter else 'unknown'} - {current_model}\n\n"
                 content += "💡 提示: 在聊天开始时可以重新选择模型"
             else:
-                content = "❌ 未找到可用模型\n\n🔧 请检查:\n- Ollama服务是否运行\n- 是否已下载模型"
+                content = "❌ 未找到可用模型\n\n🔧 请检查:\n- 模型服务是否运行\n- API密钥是否正确\n- 网络连接是否正常"
             
             await cl.Message(content=content).send()
             
@@ -70,26 +81,34 @@ class StatusCommandHandler(BaseCommandHandler):
         
         try:
             # 检查MCP服务器状态
-            mcp_healthy = await mcp_client.health_check()
+            mcp_health = await unified_mcp_client.health_check_all()
             
-            # 检查Ollama服务状态
-            ollama_healthy = await ollama_client.health_check()
+            # 检查模型服务状态
+            model_health = await unified_model_client.health_check_all()
             
             # 获取缓存统计
-            cache_stats = await mcp_client.get_cache_stats()
+            cache_stats = await unified_mcp_client.get_cache_stats()
             
             # 构建状态报告
             content = "📊 **系统状态报告**\n\n"
             
             # MCP服务器状态
-            mcp_status = "🟢 运行正常" if mcp_healthy else "🔴 连接失败"
-            content += f"**MCP服务器**: {mcp_status}\n"
-            content += f"- 地址: {UIConfig.MCP_SERVER_URL}\n\n"
+            content += "**MCP服务器**:\n"
+            for name, healthy in mcp_health.items():
+                status = "🟢 运行正常" if healthy else "🔴 连接失败"
+                client = unified_mcp_client.get_client(name)
+                url = client.base_url if client else "未知"
+                content += f"- {name}: {status} ({url})\n"
+            content += "\n"
             
-            # Ollama服务状态
-            ollama_status = "🟢 运行正常" if ollama_healthy else "🔴 连接失败"
-            content += f"**Ollama服务**: {ollama_status}\n"
-            content += f"- 地址: {UIConfig.OLLAMA_BASE_URL}\n\n"
+            # 模型服务状态
+            content += "**模型服务**:\n"
+            for name, healthy in model_health.items():
+                status = "🟢 运行正常" if healthy else "🔴 连接失败"
+                adapter = unified_model_client.get_adapter(name)
+                provider = adapter.provider if adapter else "未知"
+                content += f"- {name}: {status} ({provider})\n"
+            content += "\n"
             
             # 缓存状态
             if "error" not in cache_stats:
@@ -100,8 +119,10 @@ class StatusCommandHandler(BaseCommandHandler):
                 content += f"**缓存状态**: 🟡 无法获取\n\n"
             
             # 配置信息
+            current_adapter = cl.user_session.get("current_adapter")
+            current_model = cl.user_session.get("current_model", UIConfig.DEFAULT_MODEL)
             content += f"**配置信息**:\n"
-            content += f"- 当前模型: {cl.user_session.get('current_model', UIConfig.DEFAULT_MODEL)}\n"
+            content += f"- 当前模型: {unified_model_client.get_adapter(current_adapter).provider if current_adapter else 'unknown'} - {current_model}\n"
             content += f"- 上传目录: {UIConfig.UPLOAD_DIR}\n"
             content += f"- 日志级别: {UIConfig.LOG_LEVEL}\n"
             

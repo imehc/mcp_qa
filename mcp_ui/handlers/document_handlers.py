@@ -7,7 +7,7 @@ from typing import List
 import json
 import chainlit as cl
 from .base import BaseCommandHandler
-from ..clients import mcp_client
+from ..clients import unified_mcp_client
 from ..utils.logger import get_logger, ui_logger
 
 logger = get_logger(__name__)
@@ -39,7 +39,7 @@ class ParseCommandHandler(BaseCommandHandler):
         
         try:
             # 执行解析
-            result = await mcp_client.parse_document(file_path)
+            result = await unified_mcp_client.parse_document(file_path)
             
             duration = time.time() - start_time
             
@@ -106,7 +106,7 @@ class ListCommandHandler(BaseCommandHandler):
         
         try:
             # 执行目录列表
-            result = await mcp_client.list_directory(path)
+            result = await unified_mcp_client.list_directory(path)
             
             duration = time.time() - start_time
             
@@ -179,7 +179,7 @@ class ReadCommandHandler(BaseCommandHandler):
         
         try:
             # 执行文件读取
-            result = await mcp_client.read_file(file_path)
+            result = await unified_mcp_client.read_file(file_path)
             
             duration = time.time() - start_time
             

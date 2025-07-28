@@ -7,7 +7,8 @@
 ### 🎯 核心功能
 - **📁 文档管理**: 支持PDF、Word、Excel、PPT、Markdown等多种格式
 - **🔍 智能搜索**: 基于向量相似度的语义搜索
-- **🧠 AI问答**: 集成Ollama本地大语言模型
+- **🧠 多模型支持**: 统一支持本地和远程大语言模型
+- **🌐 远程MCP**: 支持本地和远程MCP工具服务器
 - **📊 过程可视化**: 实时展示思考和处理过程
 - **🛠️ 工具集成**: 完整的MCP工具调用与状态反馈
 
@@ -15,8 +16,25 @@
 - **模块化设计**: 按功能分层的清晰架构
 - **异步处理**: 高性能的异步IO处理
 - **配置驱动**: 灵活的配置管理系统
+- **适配器模式**: 可扩展的模型提供商支持
+- **统一接口**: 屏蔽不同服务的API差异
 - **日志追踪**: 完整的操作日志和错误追踪
-- **命令系统**: 丰富的交互命令支持
+
+### 🤖 支持的模型提供商
+- **Ollama**: 本地大语言模型服务
+- **OpenAI**: GPT系列模型（包括兼容接口）
+- **Anthropic**: Claude系列模型
+- **Google**: Gemini系列模型  
+- **Azure**: Azure OpenAI服务
+- **DeepSeek**: DeepSeek系列模型
+- **Qwen**: 通义千问系列模型
+- **自定义**: 支持添加新的模型适配器
+
+### 🔗 支持的MCP服务器
+- **本地MCP**: 项目内置的MCP服务器
+- **远程MCP**: 支持HTTP API的远程MCP服务器
+- **认证支持**: Bearer Token和API Key认证
+- **多服务器**: 同时连接多个MCP服务器
 
 ## 🚀 快速开始
 
@@ -77,27 +95,96 @@ python start_ui.py
 
 ### 环境配置
 
-可通过环境变量自定义配置：
-
+#### 基础配置
 ```bash
-# 服务端点
-export MCP_SERVER_URL=http://localhost:8020
-export OLLAMA_BASE_URL=http://localhost:11434
-
-# UI配置
+# UI应用配置
 export UI_HOST=0.0.0.0
 export UI_PORT=8000
-export UI_DEBUG=true
+export UI_DEBUG=false
 
-# 文件上传
-export UPLOAD_DIR=docs
-export MAX_FILE_SIZE=104857600  # 100MB
-
-# 模型配置
-export DEFAULT_MODEL=qwen2.5:7b
-export TEMPERATURE=0.7
-export MAX_TOKENS=4096
+# 默认模型设置
+export DEFAULT_PROVIDER=ollama  # ollama, openai, anthropic, google, azure, deepseek, qwen
+export DEFAULT_MODEL=qwen3:4b
 ```
+
+#### 远程模型配置
+
+**统一JSON配置方式（推荐）**：
+```bash
+# 所有远程模型使用统一JSON配置
+export REMOTE_MODELS='[
+  {
+    "provider": "openai",
+    "model": "gpt-4",
+    "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "anthropic", 
+    "model": "claude-3-sonnet-20240229",
+    "api_key": "sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "provider": "google",
+    "model": "gemini-pro", 
+    "api_key": "AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "provider": "deepseek",
+    "model": "deepseek-chat",
+    "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "base_url": "https://api.deepseek.com"
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen-turbo",
+    "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  },
+  {
+    "provider": "azure",
+    "model": "gpt-4",
+    "api_key": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "base_url": "https://your-resource.openai.azure.com/",
+    "api_version": "2024-02-15-preview"
+  }
+]'
+```
+
+**向后兼容的单独配置**：
+```bash
+# OpenAI配置
+export OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export OPENAI_MODEL=gpt-4
+
+# Anthropic配置  
+export ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export ANTHROPIC_MODEL=claude-3-sonnet-20240229
+
+# Google配置
+export GOOGLE_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export GOOGLE_MODEL=gemini-pro
+
+# Azure配置
+export AZURE_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export AZURE_ENDPOINT=https://your-resource.openai.azure.com/
+export AZURE_DEPLOYMENT=gpt-4
+```
+
+#### 远程MCP服务器配置
+```bash
+# 远程MCP服务器（JSON格式）  
+export REMOTE_MCP_SERVERS='[
+  {
+    "name": "remote-qa",
+    "url": "https://api.example.com/mcp",
+    "api_key": "your-api-key",
+    "enabled": true
+  }
+]'
+```
+
+更多配置选项请参考 [CONFIG_EXAMPLES.md](./CONFIG_EXAMPLES.md)。
 
 ## 🏗️ 项目结构
 
@@ -105,19 +192,21 @@ export MAX_TOKENS=4096
 mcp_ui/
 ├── __init__.py              # 模块初始化
 ├── app.py                   # 主应用文件
+├── CONFIG_EXAMPLES.md       # 配置示例文档
 ├── clients/                 # 客户端模块
 │   ├── mcp_client.py        # MCP服务器客户端
-│   └── ollama_client.py     # Ollama模型客户端
+│   ├── ollama_client.py     # Ollama客户端（兼容性）
+│   ├── model_adapter.py     # 统一模型适配器系统
+│   └── client_manager.py    # 客户端管理器
 ├── config/                  # 配置模块
-│   └── settings.py          # 配置管理
+│   └── settings.py          # 配置管理和枚举
 ├── handlers/                # 命令处理器
-│   ├── base.py              # 基础处理器
+│   ├── base.py              # 基础处理器和注册表
 │   ├── index_handlers.py    # 索引管理处理器
 │   ├── document_handlers.py # 文档处理处理器
 │   └── system_handlers.py   # 系统信息处理器
-├── interface/               # 界面组件
 └── utils/                   # 工具模块
-    └── logger.py            # 日志工具
+    └── logger.py            # 日志工具和追踪
 ```
 
 ## 🔧 Makefile 命令

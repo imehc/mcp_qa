@@ -6,7 +6,7 @@ import time
 from typing import List
 import chainlit as cl
 from .base import BaseCommandHandler
-from ..clients import mcp_client
+from ..clients import unified_mcp_client
 from ..utils.logger import get_logger, ProgressLogger, ui_logger
 
 logger = get_logger(__name__)
@@ -36,7 +36,7 @@ class BuildCommandHandler(BaseCommandHandler):
         
         try:
             # 调用MCP服务器构建索引
-            result = await mcp_client.build_index(directory)
+            result = await unified_mcp_client.build_index(directory)
             
             duration = time.time() - start_time
             
@@ -101,7 +101,7 @@ class SearchCommandHandler(BaseCommandHandler):
         
         try:
             # 执行搜索
-            result = await mcp_client.search_documents(query, top_k)
+            result = await unified_mcp_client.search_documents(query, top_k)
             
             duration = time.time() - start_time
             
