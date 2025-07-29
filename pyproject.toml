@@ -23,4 +23,6 @@ dependencies = [
     "openpyxl>=3.0.0",
     "python-pptx>=0.6.0",
     "psutil>=7.0.0",
+    "chainlit>=1.0.0",
+    "openai>=1.97.1",
 ]

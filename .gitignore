@@ -15,3 +15,7 @@ faiss_index/
 *.pid
 *.txt
 **/*.log
+.chainlit/
+chainlit.md
+.env
+.vscode/
