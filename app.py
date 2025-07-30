@@ -1,13 +1,12 @@
 import json
 import time
-from mcp import ClientSession
 from mcp.types import TextContent, ImageContent
 import os
-from aiohttp import ClientSession
 import chainlit as cl
 from openai import AsyncOpenAI
 import traceback
 from dotenv import load_dotenv
+from typing import AsyncGenerator
 
 load_dotenv()
 
@@ -27,19 +26,38 @@ class ChatClient:
         self.system_prompt = SYSTEM_PROMPT
         self.active_streams = []  # 跟踪活动的响应流
         self.thinking_start_time = None  # 跟踪思考开始时间
-        self.tool_called = False  # Track if a tool was called in the last turn
+        self.tool_called = False  # 跟踪上一轮是否调用了工具
 
     async def _cleanup_streams(self):
         """清理所有活动流的辅助方法"""
-        for stream in self.active_streams:
+        cleanup_tasks = []
+        for stream in self.active_streams[:]:  # 创建一个副本以避免在迭代期间进行修改
             try:
-                await stream.aclose()
+                if hasattr(stream, 'aclose'):
+                    cleanup_tasks.append(stream.aclose())
+                elif hasattr(stream, 'close'):
+                    cleanup_tasks.append(stream.close())
             except Exception:
-                pass
-        self.active_streams = []
+                pass  # 忽略单个清理错误
+        
+        # 超时等待所有清理任务
+        if cleanup_tasks:
+            try:
+                import asyncio
+                await asyncio.wait_for(
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
+                    timeout=2.0
+                )
+            except asyncio.TimeoutError:
+                pass  # 忽略超时
+            except Exception:
+                pass  # 忽略其它错误
+        
+        self.active_streams.clear()
 
-    # 请用这个修改后的完整函数替换您文件中的旧版本
-    async def process_response_stream(self, response_stream, tools, temperature=0):
+    async def process_response_stream(
+        self, response_stream, tools, temperature=0
+    ) -> AsyncGenerator[str, None]:
         """
         处理响应流以处理思考过程和函数调用。
         """
@@ -48,7 +66,7 @@ class ChatClient:
         tool_call_id = ""
         is_collecting_function_args = False
         collected_messages = []
-        # Reset tool_called status for the current stream processing
+        # 重置当前流处理的工具调用状态
         self.tool_called = False
         thinking_content_exists = False
 
@@ -91,7 +109,9 @@ class ChatClient:
                             await thinking_step.stream_token(reasoning_content)
                         else:
                             # 思考完成，更新步骤名称和时间
-                            thought_for = round(time.time() - self.thinking_start_time)
+                            thought_for = round(
+                                time.time() - (self.thinking_start_time or 0)
+                            )
                             thinking_step.name = f"已思考{thought_for}秒"
                             await thinking_step.update()
 
@@ -154,7 +174,7 @@ class ChatClient:
                                 f"函数名: {function_name} 函数参数: {function_arguments}"
                             )
                             function_args = json.loads(function_arguments)
-                            mcp_tools = cl.user_session.get("mcp_tools", {})
+                            mcp_tools = cl.user_session.get("mcp_tools", {}) or {}
                             mcp_name = None
                             for connection_name, session_tools in mcp_tools.items():
                                 if any(
@@ -178,7 +198,7 @@ class ChatClient:
                                             "type": "function",
                                         }
                                     ],
-                                    # Add collected content before tool call
+                                    # 添加工具调用前收集的内容
                                     "content": "".join(
                                         [
                                             msg
@@ -191,9 +211,13 @@ class ChatClient:
                             )
 
                             # 在开始新流之前安全关闭当前流
-                            if response_stream in self.active_streams:
-                                self.active_streams.remove(response_stream)
-                                await response_stream.close()
+                            try:
+                                if response_stream in self.active_streams:
+                                    self.active_streams.remove(response_stream)
+                                if hasattr(response_stream, 'aclose'):
+                                    await response_stream.aclose()
+                            except Exception:
+                                pass  # 忽略清理错误
 
                             # 调用工具并将响应添加到消息中
                             func_response = await call_tool(
@@ -282,7 +306,7 @@ class ChatClient:
 
                     try:
                         function_args = json.loads(function_arguments)
-                        mcp_tools = cl.user_session.get("mcp_tools", {})
+                        mcp_tools = cl.user_session.get("mcp_tools", {}) or {}
                         mcp_name = next(
                             (
                                 name
@@ -316,9 +340,13 @@ class ChatClient:
                             }
                         )
 
-                        if response_stream in self.active_streams:
-                            self.active_streams.remove(response_stream)
-                            await response_stream.close()
+                        try:
+                            if response_stream in self.active_streams:
+                                self.active_streams.remove(response_stream)
+                            if hasattr(response_stream, 'aclose'):
+                                await response_stream.aclose()
+                        except Exception:
+                            pass  # 忽略清理错误
 
                         func_response = await call_tool(
                             mcp_name, function_name, function_args
@@ -354,48 +382,65 @@ class ChatClient:
                             self.messages.append(
                                 {"role": "assistant", "content": final_content}
                             )
-                    if response_stream in self.active_streams:
-                        self.active_streams.remove(response_stream)
-                # --- 修改结束 ---
-
+                    try:
+                        if response_stream in self.active_streams:
+                            self.active_streams.remove(response_stream)
+                    except Exception:
+                        pass  # 忽略清理错误
         except GeneratorExit:
-            if response_stream in self.active_streams:
-                self.active_streams.remove(response_stream)
-                await response_stream.aclose()
+            # 正确处理生成器清理
+            try:
+                if response_stream in self.active_streams:
+                    self.active_streams.remove(response_stream)
+                    if hasattr(response_stream, 'aclose'):
+                        await response_stream.aclose()
+            except Exception:
+                pass  # 忽略清理错误
+            raise 
         except Exception as e:
             print(f"process_response_stream中的错误: {e}")
             traceback.print_exc()
-            if response_stream in self.active_streams:
-                self.active_streams.remove(response_stream)
+            try:
+                if response_stream in self.active_streams:
+                    self.active_streams.remove(response_stream)
+                    if hasattr(response_stream, 'aclose'):
+                        await response_stream.aclose()
+            except Exception:
+                pass  # 忽略清理错误
 
     async def generate_response(self, tools, temperature=0):
         """
-        Generates a single response from the LLM.
-        It yields tokens for the response and updates the internal state (e.g., self.tool_called).
-        The while loop for sequential calls is now handled in on_message.
+        从LLM生成单个响应。
+        它为响应生成令牌并更新内部状态（例如，self.tool_called）。
+        现在在on_message中处理顺序调用的while循环。
         """
-        print(f"Messages sent to API: {self.messages}")
+        print(f"发送给API的消息: {self.messages}")
 
-        response_stream = await self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-            tools=tools,
-            parallel_tool_calls=False,
-            stream=True,
-            temperature=temperature,
-        )
+        # 仅在有工具可用时包含tools参数
+        api_params = {
+            "model": self.model,
+            "messages": self.messages,
+            "parallel_tool_calls": False,
+            "stream": True,
+            "temperature": temperature,
+        }
+
+        if tools:  # 仅当列表不为空时添加工具
+            api_params["tools"] = tools
+
+        response_stream = await self.client.chat.completions.create(**api_params)
 
         try:
-            # Stream and process this single response.
-            # self.process_response_stream will update self.messages and self.tool_called
+            # 流式传输并处理此单个响应。
+            # self.process_response_stream将更新self.messages和self.tool_called
             async for token in self.process_response_stream(
                 response_stream, tools, temperature
             ):
                 yield token
         except GeneratorExit:
-            # Ensure cleanup if the client disconnects during generation
+            # 确保GeneratorExit进行适当清理
             await self._cleanup_streams()
-            return
+            raise 
 
 
 def flatten(xss):
@@ -403,7 +448,13 @@ def flatten(xss):
 
 
 @cl.on_mcp_connect
-async def on_mcp(connection, session: ClientSession):
+def on_mcp(connection, session) -> None:
+    import asyncio
+
+    asyncio.create_task(on_mcp_async(connection, session))
+
+
+async def on_mcp_async(connection, session) -> None:
     result = await session.list_tools()
     tools = [
         {
@@ -414,18 +465,34 @@ async def on_mcp(connection, session: ClientSession):
         for t in result.tools
     ]
 
-    mcp_tools = cl.user_session.get("mcp_tools", {})
+    mcp_tools = cl.user_session.get("mcp_tools", {}) or {}
     mcp_tools[connection.name] = tools
     cl.user_session.set("mcp_tools", mcp_tools)
 
 
 @cl.step(type="tool")
 async def call_tool(mcp_name, function_name, function_args):
+    resp_items = []  # 在开始时初始化resp_items
     try:
-        resp_items = []
         print(f"函数名: {function_name} 函数参数: {function_args}")
-        mcp_session, _ = cl.context.session.mcp_sessions.get(mcp_name)
-        func_response = await mcp_session.call_tool(function_name, function_args)
+        mcp_session_data = cl.context.session.mcp_sessions.get(mcp_name)  # type: ignore
+        if mcp_session_data is None:
+            raise ValueError(f"未找到MCP会话: {mcp_name}")
+
+        mcp_session, _ = mcp_session_data
+        
+        # 增加MCP工具调用超时时间
+        import asyncio
+        try:
+            func_response = await asyncio.wait_for(
+                mcp_session.call_tool(function_name, function_args),
+                timeout=30.0  # 30超时
+            )
+        except asyncio.TimeoutError:
+            print("调用mcp工具超时")
+            resp_items.append({"type": "text", "text": "工具调用超时，请重试"})
+            return json.dumps(resp_items)
+            
         for item in func_response.content:
             if isinstance(item, TextContent):
                 resp_items.append({"type": "text", "text": item.text})
@@ -442,57 +509,56 @@ async def call_tool(mcp_name, function_name, function_args):
                 raise ValueError(f"不支持的内容类型: {type(item)}")
 
     except Exception as e:
+        print(f"调用mcp工具报错: {e}")
         traceback.print_exc()
-        resp_items.append({"type": "text", "text": str(e)})
+        resp_items.append({"type": "text", "text": f"工具调用失败: {str(e)}"})
     return json.dumps(resp_items)
 
 
 @cl.on_chat_start
 async def start_chat():
-    # We no longer set messages or system_prompt here as the client is created per message
+    # 我们不再在此处设置messages或system_prompt，因为客户端是按消息创建的
     cl.user_session.set("mcp_tools", {})
     cl.user_session.set("messages", [])
 
 
-# --- COMPLETELY REWRITTEN METHOD ---
 @cl.on_message
 async def on_message(message: cl.Message):
-    mcp_tools = cl.user_session.get("mcp_tools", {})
+    mcp_tools = cl.user_session.get("mcp_tools", {}) or {}
     tools = flatten([tools for _, tools in mcp_tools.items()])
     tools = [{"type": "function", "function": tool} for tool in tools]
 
-    # Create a single client instance for the duration of the turn
+    # 为本轮对话持续时间创建单个客户端实例
     client = ChatClient()
-    # Restore the full conversation history
-    client.messages = cl.user_session.get("messages", [])
+    # 恢复完整的对话历史
+    client.messages = cl.user_session.get("messages", []) or []
 
-    # Append the new user message to the history
+    # 将新的用户消息追加到历史记录中
     client.messages.append({"role": "user", "content": message.content})
 
-    # This loop handles the conversation turn. It will run once for the initial
-    # response, and if a tool is called, it will run again to generate the
-    # final response after the tool result.
+    # 此循环处理对话轮次。它将为初始响应运行一次，
+    # 如果调用了工具，它将再次运行以在工具结果后生成最终响应。
     while True:
-        # Create a new, empty message for each step of the assistant's response.
+        # 为助手响应的每个步骤创建一个新的空消息。
         msg = cl.Message(content="")
 
-        # Stream the assistant's response into the new message.
-        # The generate_response method now only handles one API call at a time.
+        # 将助手的响应流式传输到新消息中。
+        # generate_response方法现在一次只处理一个API调用。
         async for text_chunk in client.generate_response(tools=tools):
             await msg.stream_token(text_chunk)
 
-        # Send the completed message. If it's empty (e.g., only a tool call),
-        # it won't be displayed.
+        # 发送已完成的消息。如果它是空的（例如，只有工具调用），
+        # 它将不会被显示。
         if msg.content:
             await msg.send()
 
-        # Check the flag on the client instance. If no tool was called,
-        # the assistant's turn is complete, and we can exit the loop.
+        # 检查客户端实例上的标志。如果没有调用工具，
+        # 助手的轮次就完成了，我们可以退出循环。
         if not client.tool_called:
             break
-        # If a tool was called, the loop will continue.
-        # client.messages has already been updated with the tool call and result,
-        # so the next iteration will generate a response based on that.
+        # 如果调用了工具，循环将继续。
+        # client.messages已经用工具调用和结果更新了，
+        # 所以下一次迭代将基于此生成响应。
 
-    # Persist the final, updated message history to the user session.
+    # 将最终更新的消息历史保存到用户会话中。
     cl.user_session.set("messages", client.messages)

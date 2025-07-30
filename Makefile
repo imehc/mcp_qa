@@ -9,7 +9,7 @@ VENV_DIR = .venv
 LOG_DIR = logs
 
 # 模块配置
-MODULES = mcp_server ollama
+MODULES = mcp_server ui ollama
 CURRENT_MODULE ?= mcp_server
 
 # mcp_server 模块配置
@@ -19,6 +19,13 @@ MCP_SERVER_HOST ?= 0.0.0.0
 MCP_SERVER_PORT ?= 8020
 MCP_SERVER_DEBUG ?= false
 MCP_SERVER_ALLOWED_DIRS ?= docs
+
+# ui 模块配置
+UI_PID_FILE = .ui.pid
+UI_LOG_FILE = logs/ui_$(shell date +%Y%m%d_%H%M%S).log
+UI_HOST ?= 0.0.0.0
+UI_PORT ?= 8000
+UI_WATCH ?= true
 
 # ollama 模块配置 (仅限 macOS)
 OLLAMA_AVAILABLE := $(shell command -v brew >/dev/null 2>&1 && echo true || echo false)
@@ -43,6 +50,7 @@ NC = \033[0m # No Color
 
 .PHONY: help install start stop restart status logs clean dev test build list-modules check-port diagnose
 .PHONY: mcp-server-start mcp-server-stop mcp-server-restart mcp-server-status mcp-server-logs mcp-server-dev mcp-server-diagnose
+.PHONY: ui-start ui-stop ui-restart ui-status ui-logs ui-dev ui-diagnose
 .PHONY: ollama-start ollama-stop ollama-restart ollama-status ollama-diagnose
 
 # 默认目标
@@ -57,23 +65,30 @@ help: ## 显示帮助信息
 	@echo "$(YELLOW)模块特定命令 (mcp_server):$(NC)"
 	@awk 'BEGIN {FS = ":.*?## "} /^mcp-server-.*:.*?## / {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
+	@echo "$(YELLOW)模块特定命令 (ui):$(NC)"
+	@awk 'BEGIN {FS = ":.*?## "} /^ui-.*:.*?## / {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""
 	@echo "$(YELLOW)模块特定命令 (ollama):$(NC)"
 	@awk 'BEGIN {FS = ":.*?## "} /^ollama-.*:.*?## / {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "$(YELLOW)当前模块配置 ($(CURRENT_MODULE)):$(NC)"
-	@echo "  $(GREEN)HOST$(NC)         服务器主机地址 ($(HOST))"
-	@echo "  $(GREEN)PORT$(NC)         服务器端口 ($(PORT))"
-	@echo "  $(GREEN)DEBUG$(NC)        调试模式 ($(DEBUG))"
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
+		echo "  $(GREEN)HOST$(NC)         服务器主机地址 ($(MCP_SERVER_HOST))"; \
+		echo "  $(GREEN)PORT$(NC)         服务器端口 ($(MCP_SERVER_PORT))"; \
+		echo "  $(GREEN)DEBUG$(NC)        调试模式 ($(MCP_SERVER_DEBUG))"; \
 		echo "  $(GREEN)ALLOWED_DIRS$(NC) 安全白名单目录 ($(MCP_SERVER_ALLOWED_DIRS))"; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		echo "  $(GREEN)HOST$(NC)         UI主机地址 ($(UI_HOST))"; \
+		echo "  $(GREEN)PORT$(NC)         UI端口 ($(UI_PORT))"; \
+		echo "  $(GREEN)WATCH$(NC)        监听文件变化 ($(UI_WATCH))"; \
 	fi
 	@echo ""
 	@echo "$(YELLOW)示例:$(NC)"
 	@echo "  make start                           # 启动当前模块 ($(CURRENT_MODULE))"
 	@echo "  make mcp-server-start                # 明确启动 mcp_server 模块"
+	@echo "  make ui-start                        # 启动 UI 模块"
 	@echo "  make ollama-start                    # 启动 ollama 服务 (仅限 macOS)"
-	@echo "  make start CURRENT_MODULE=mcp_server # 指定模块启动"
-	@echo "  make start MCP_SERVER_ALLOWED_DIRS='docs,data' # 自定义安全目录"
+	@echo "  make start CURRENT_MODULE=ui         # 指定模块启动"
 	@echo "  make list-modules                    # 查看所有可用模块"
 
 install: ## 安装依赖
@@ -134,6 +149,8 @@ check-running: ## 检查服务器是否运行
 start: ## 启动当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-start; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-start; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-start; \
 	else \
@@ -144,6 +161,8 @@ start: ## 启动当前模块
 stop: ## 停止当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-stop; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-stop; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-stop; \
 	else \
@@ -154,6 +173,8 @@ stop: ## 停止当前模块
 restart: ## 重启当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-restart; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-restart; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-restart; \
 	else \
@@ -164,6 +185,8 @@ restart: ## 重启当前模块
 status: ## 查看当前模块状态
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-status; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-status; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-status; \
 	else \
@@ -174,6 +197,8 @@ status: ## 查看当前模块状态
 dev: ## 以开发模式启动当前模块
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-dev; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-dev; \
 	else \
 		echo "$(RED)❌ 未知模块: $(CURRENT_MODULE)$(NC)"; \
 		exit 1; \
@@ -182,6 +207,8 @@ dev: ## 以开发模式启动当前模块
 logs: ## 查看当前模块日志
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-logs; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-logs; \
 	else \
 		echo "$(RED)❌ 未知模块: $(CURRENT_MODULE)$(NC)"; \
 		exit 1; \
@@ -203,6 +230,8 @@ logs-static: ## 查看当前模块静态日志
 diagnose: ## 诊断当前模块问题
 	@if [ "$(CURRENT_MODULE)" = "mcp_server" ]; then \
 		$(MAKE) mcp-server-diagnose; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		$(MAKE) ui-diagnose; \
 	elif [ "$(CURRENT_MODULE)" = "ollama" ]; then \
 		$(MAKE) ollama-diagnose; \
 	else \
@@ -221,6 +250,10 @@ test-server: ## 测试当前模块连接
 			curl -s http://$(MCP_SERVER_HOST):$(MCP_SERVER_PORT)/health > /dev/null && \
 			echo "$(GREEN)✅ MCP Server 连接正常$(NC)" || \
 			echo "$(RED)❌ MCP Server 连接失败$(NC)"; \
+		elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+			curl -s http://$(UI_HOST):$(UI_PORT) > /dev/null && \
+			echo "$(GREEN)✅ UI 模块连接正常$(NC)" || \
+			echo "$(RED)❌ UI 模块连接失败$(NC)"; \
 		else \
 			echo "$(RED)❌ 未知模块: $(CURRENT_MODULE)$(NC)"; \
 		fi \
@@ -231,6 +264,7 @@ test-server: ## 测试当前模块连接
 clean: ## 清理临时文件
 	@echo "$(BLUE)正在清理临时文件...$(NC)"
 	@rm -f $(MCP_SERVER_PID_FILE)
+	@rm -f $(UI_PID_FILE)
 	@rm -rf __pycache__/
 	@rm -rf mcp_server/__pycache__/
 	@rm -rf mcp_server/*/__pycache__/
@@ -248,6 +282,13 @@ clean-logs: ## 清理当前模块日志文件
 			echo "$(GREEN)✅ MCP Server 日志文件已清空$(NC)"; \
 		else \
 			echo "$(YELLOW)MCP Server 日志文件不存在$(NC)"; \
+		fi \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		if [ -f $(UI_LOG_FILE) ]; then \
+			> $(UI_LOG_FILE); \
+			echo "$(GREEN)✅ UI 模块日志文件已清空$(NC)"; \
+		else \
+			echo "$(YELLOW)UI 模块日志文件不存在$(NC)"; \
 		fi \
 	else \
 		echo "$(RED)❌ 未知模块: $(CURRENT_MODULE)$(NC)"; \
@@ -450,6 +491,195 @@ mcp-server-diagnose: ## 诊断 mcp_server 模块问题
 	fi
 
 # =============================================================================
+# UI 模块特定命令
+# =============================================================================
+
+ui-start: setup-dirs ## 启动 UI 模块
+	@echo "$(BLUE)正在启动 UI 模块...$(NC)"
+	@echo "$(CYAN)配置: Host=$(UI_HOST), Port=$(UI_PORT), Watch=$(UI_WATCH)$(NC)"
+	@# 检查是否已经在运行，如果是则直接退出
+	@if [ -f $(UI_PID_FILE) ]; then \
+		PID=$$(cat $(UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(YELLOW)UI 模块已经在运行 (PID: $$PID)$(NC)"; \
+			echo "$(GREEN)地址: http://$(UI_HOST):$(UI_PORT)$(NC)"; \
+		else \
+			echo "$(YELLOW)清理过期的PID文件$(NC)"; \
+			rm -f $(UI_PID_FILE); \
+			$(MAKE) _do-ui-start; \
+		fi \
+	else \
+		$(MAKE) _do-ui-start; \
+	fi
+
+_do-ui-start: ## 内部UI启动命令
+	@# 检查端口是否被其他进程占用
+	@PORT_IN_USE=$$(lsof -i :$(UI_PORT) 2>/dev/null); \
+	if [ -n "$$PORT_IN_USE" ]; then \
+		echo "$(RED)❌ 端口 $(UI_PORT) 已被其他进程占用:$(NC)"; \
+		echo "$$PORT_IN_USE"; \
+		PID_FROM_PORT=$$(echo "$$PORT_IN_USE" | awk 'NR==2 {print $$2}'); \
+		echo "$(RED)请先停止占用端口的进程: kill $$PID_FROM_PORT$(NC)"; \
+		exit 1; \
+	fi
+	@# 检查Python模块是否存在
+	@if ! $(UV_RUN) python -c "import chainlit; import app" 2>/dev/null; then \
+		echo "$(RED)❌ 找不到 chainlit 或 app 模块$(NC)"; \
+		echo "$(YELLOW)请确保项目依赖已正确安装: make install$(NC)"; \
+		exit 1; \
+	fi
+	@# 启动UI服务
+	@echo "$(BLUE)启动 UI 服务...$(NC)"
+	@UI_HOST=$(UI_HOST) UI_PORT=$(UI_PORT) UI_WATCH=$(UI_WATCH) \
+		nohup $(UV_RUN) chainlit run app.py --host $(UI_HOST) --port $(UI_PORT) -w > $(UI_LOG_FILE) 2>&1 & echo $$! > $(UI_PID_FILE)
+	@sleep 3
+	@# 验证启动是否成功
+	@if [ -f $(UI_PID_FILE) ]; then \
+		PID=$$(cat $(UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(GREEN)✅ UI 模块启动成功!$(NC)"; \
+			echo "$(GREEN)PID: $$PID$(NC)"; \
+			echo "$(GREEN)地址: http://$(UI_HOST):$(UI_PORT)$(NC)"; \
+			echo "$(GREEN)日志: $(UI_LOG_FILE)$(NC)"; \
+		else \
+			echo "$(RED)❌ UI 模块启动失败$(NC)"; \
+			echo "$(YELLOW)查看日志获取详细错误信息: make ui-logs$(NC)"; \
+			if [ -f $(UI_LOG_FILE) ]; then \
+				echo "$(RED)最近的错误日志:$(NC)"; \
+				tail -n 10 $(UI_LOG_FILE) | sed 's/^/  /'; \
+			fi; \
+			rm -f $(UI_PID_FILE); \
+			exit 1; \
+		fi \
+	else \
+		echo "$(RED)❌ 无法获取进程ID$(NC)"; \
+		exit 1; \
+	fi
+
+ui-stop: ## 停止 UI 模块
+	@if [ -f $(UI_PID_FILE) ]; then \
+		PID=$$(cat $(UI_PID_FILE)); \
+		echo "$(YELLOW)正在停止 UI 模块 (PID: $$PID)...$(NC)"; \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			kill $$PID; \
+			sleep 2; \
+			if ps -p $$PID > /dev/null 2>&1; then \
+				echo "$(YELLOW)强制停止 UI 模块...$(NC)"; \
+				kill -9 $$PID; \
+			fi; \
+			echo "$(GREEN)✅ UI 模块已停止$(NC)"; \
+		else \
+			echo "$(YELLOW)UI 模块未运行$(NC)"; \
+		fi; \
+		rm -f $(UI_PID_FILE); \
+	else \
+		echo "$(YELLOW)UI 模块未运行$(NC)"; \
+	fi
+
+ui-restart: ## 重启 UI 模块
+	@echo "$(BLUE)正在重启 UI 模块...$(NC)"
+	@$(MAKE) ui-stop
+	@sleep 1
+	@$(MAKE) ui-start
+
+ui-status: ## 查看 UI 模块状态
+	@if [ -f $(UI_PID_FILE) ]; then \
+		PID=$$(cat $(UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(GREEN)✅ UI 模块正在运行$(NC)"; \
+			echo "$(GREEN)PID: $$PID$(NC)"; \
+			echo "$(GREEN)地址: http://$(UI_HOST):$(UI_PORT)$(NC)"; \
+			echo "$(GREEN)运行时间: $$(ps -o etime= -p $$PID | tr -d ' ')$(NC)"; \
+			echo "$(GREEN)内存使用: $$(ps -o rss= -p $$PID | tr -d ' ') KB$(NC)"; \
+		else \
+			echo "$(RED)❌ UI 模块未运行$(NC)"; \
+			rm -f $(UI_PID_FILE); \
+		fi \
+	else \
+		echo "$(RED)❌ UI 模块未运行$(NC)"; \
+	fi
+
+ui-logs: ## 查看 UI 模块日志
+	@if [ -f $(UI_LOG_FILE) ]; then \
+		echo "$(BLUE)显示 UI 模块日志 (按 Ctrl+C 退出):$(NC)"; \
+		tail -f $(UI_LOG_FILE); \
+	else \
+		echo "$(RED)❌ 日志文件不存在: $(UI_LOG_FILE)$(NC)"; \
+	fi
+
+ui-dev: setup-dirs ## 以开发模式启动 UI 模块
+	@echo "$(BLUE)正在以开发模式启动 UI 模块...$(NC)"
+	@echo "$(CYAN)配置: Host=$(UI_HOST), Port=$(UI_PORT), Watch=$(UI_WATCH)$(NC)"
+	@echo "$(YELLOW)按 Ctrl+C 停止服务器$(NC)"
+	@# 检查端口是否被占用
+	@PORT_IN_USE=$$(lsof -i :$(UI_PORT) 2>/dev/null); \
+	if [ -n "$$PORT_IN_USE" ]; then \
+		echo "$(RED)❌ 端口 $(UI_PORT) 已被占用:$(NC)"; \
+		echo "$$PORT_IN_USE"; \
+		exit 1; \
+	fi
+	@UI_HOST=$(UI_HOST) UI_PORT=$(UI_PORT) UI_WATCH=$(UI_WATCH) \
+		$(UV_RUN) chainlit run app.py --host $(UI_HOST) --port $(UI_PORT)
+
+ui-diagnose: ## 诊断 UI 模块问题
+	@echo "$(CYAN)UI 模块诊断信息:$(NC)"
+	@echo ""
+	@echo "$(YELLOW)1. 检查端口占用:$(NC)"
+	@PORT_IN_USE=$$(lsof -i :$(UI_PORT) 2>/dev/null); \
+	if [ -n "$$PORT_IN_USE" ]; then \
+		echo "$(RED)端口 $(UI_PORT) 被占用:$(NC)"; \
+		echo "$$PORT_IN_USE"; \
+	else \
+		echo "$(GREEN)端口 $(UI_PORT) 可用$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)2. 检查进程状态:$(NC)"
+	@if [ -f $(UI_PID_FILE) ]; then \
+		PID=$$(cat $(UI_PID_FILE)); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "$(GREEN)UI 模块进程运行中 (PID: $$PID)$(NC)"; \
+			echo "运行时间: $$(ps -o etime= -p $$PID | tr -d ' ')"; \
+			echo "内存使用: $$(ps -o rss= -p $$PID | tr -d ' ') KB"; \
+		else \
+			echo "$(RED)PID文件存在但进程未运行$(NC)"; \
+		fi \
+	else \
+		echo "$(YELLOW)无PID文件$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)3. 检查Python模块:$(NC)"
+	@if $(UV_RUN) python -c "import chainlit; import app" 2>/dev/null; then \
+		echo "$(GREEN)chainlit 和 app 模块可导入$(NC)"; \
+	else \
+		echo "$(RED)模块导入失败$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)4. 检查日志文件:$(NC)"
+	@if [ -f $(UI_LOG_FILE) ]; then \
+		LOG_SIZE=$$(wc -l < $(UI_LOG_FILE)); \
+		echo "$(GREEN)日志文件存在: $(UI_LOG_FILE)$(NC)"; \
+		echo "日志行数: $$LOG_SIZE"; \
+		if [ $$LOG_SIZE -gt 0 ]; then \
+			echo ""; \
+			echo "$(YELLOW)最近的日志内容:$(NC)"; \
+			tail -n 5 $(UI_LOG_FILE) | sed 's/^/  /'; \
+		fi \
+	else \
+		echo "$(YELLOW)日志文件不存在$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)5. 网络连接测试:$(NC)"
+	@if command -v curl >/dev/null 2>&1; then \
+		if curl -s --connect-timeout 5 http://$(UI_HOST):$(UI_PORT) > /dev/null 2>&1; then \
+			echo "$(GREEN)HTTP连接正常$(NC)"; \
+		else \
+			echo "$(RED)HTTP连接失败$(NC)"; \
+		fi \
+	else \
+		echo "$(YELLOW)curl不可用，跳过网络测试$(NC)"; \
+	fi
+
+# =============================================================================
 # Ollama 模块特定命令 (仅限 macOS)
 # =============================================================================
 
@@ -590,6 +820,11 @@ info: ## 显示项目信息
 		echo "  $(GREEN)日志文件:$(NC) $(MCP_SERVER_LOG_FILE)"; \
 		echo "  $(GREEN)服务地址:$(NC) http://$(MCP_SERVER_HOST):$(MCP_SERVER_PORT)"; \
 		echo "  $(GREEN)安全目录:$(NC) $(MCP_SERVER_ALLOWED_DIRS)"; \
+	elif [ "$(CURRENT_MODULE)" = "ui" ]; then \
+		echo "  $(GREEN)PID文件:$(NC) $(UI_PID_FILE)"; \
+		echo "  $(GREEN)日志文件:$(NC) $(UI_LOG_FILE)"; \
+		echo "  $(GREEN)服务地址:$(NC) http://$(UI_HOST):$(UI_PORT)"; \
+		echo "  $(GREEN)文件监听:$(NC) $(UI_WATCH)"; \
 	fi
 
 # 快捷命令别名
