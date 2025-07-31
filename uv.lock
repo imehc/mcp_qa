@@ -710,6 +710,29 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-community"
+version = "0.3.27"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "dataclasses-json" },
+    { name = "httpx-sse" },
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "langsmith" },
+    { name = "numpy" },
+    { name = "pydantic-settings" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "sqlalchemy" },
+    { name = "tenacity" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/76/200494f6de488217a196c4369e665d26b94c8c3642d46e2fd62f9daf0a3a/langchain_community-0.3.27.tar.gz", hash = "sha256:e1037c3b9da0c6d10bf06e838b034eb741e016515c79ef8f3f16e53ead33d882", size = 33237737, upload-time = "2025-07-02T18:47:02.329Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/bc/f8c7dae8321d37ed39ac9d7896617c4203248240a4835b136e3724b3bb62/langchain_community-0.3.27-py3-none-any.whl", hash = "sha256:581f97b795f9633da738ea95da9cb78f8879b538090c9b7a68c0aed49c828f0d", size = 2530442, upload-time = "2025-07-02T18:47:00.246Z" },
+]
+
+[[package]]
 name = "langchain-core"
 version = "0.3.69"
 source = { registry = "https://pypi.org/simple" }
@@ -883,6 +906,7 @@ dependencies = [
     { name = "docx2txt" },
     { name = "faiss-cpu" },
     { name = "langchain" },
+    { name = "langchain-community" },
     { name = "markdown" },
     { name = "mcp" },
     { name = "numpy" },
@@ -907,6 +931,7 @@ requires-dist = [
     { name = "docx2txt", specifier = ">=0.9" },
     { name = "faiss-cpu", specifier = ">=1.11.0.post1" },
     { name = "langchain", specifier = ">=0.3.26" },
+    { name = "langchain-community", specifier = ">=0.3.27" },
     { name = "markdown", specifier = ">=3.7" },
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },

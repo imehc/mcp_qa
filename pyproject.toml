@@ -25,4 +25,5 @@ dependencies = [
     "psutil>=7.0.0",
     "chainlit>=1.0.0",
     "openai>=1.97.1",
+    "langchain-community>=0.3.27",
 ]
