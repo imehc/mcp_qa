@@ -14,5 +14,6 @@ faiss_index/
 .gradio/
 *.pid
 *.txt
+!demo/*.txt
 **/*.log
 .env
