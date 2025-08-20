@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html xmlns="//www.w3.org/1999/xhtml" xml:lang="zh" class="windows desktop landscape" lang="zh"><head>
+<title>大学列表_中国大学MOOC(慕课)</title>
+
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/PKU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/370D4ADD98FE6993DE1970DB0060ACCA.png" alt="北京大学" width="164" height="60">
+</a>
+
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/HIT" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/DECA7A0A83D3A7392D89D89D1052EF17.png" alt="哈尔滨工业大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/NEU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/ACAB4C1B0610AB9088D6801CC6FC560D.png" alt="东北大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/TONGJI" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/6F31DFEDE0DFF8348D3CF978ED909CA4.png" alt="同济大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/SJTU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/7D346AE95BD4FA275CB8E1F7EFD46E61.png" alt="上海交通大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/ECNU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/43D19A2002E2A1BC1A05A5A852BAC6C8.png" alt="华东师范大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/RUC" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/9A39DABAA98AC316BFD8AA24A26A4524.png" alt="中国人民大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/SEU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/6608249600887935764.jpg" alt="东南大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/BJFU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/E5375CF0F7613B8A6C78F4C14D726749.jpg" alt="北京林业大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/USTC" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/3665930096779793404.jpg" alt="中国科学技术大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/XMU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/75767A5C4DD096C4E18ABAD156621257.png" alt="厦门大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/SDU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/1342917113986842373.jpg" alt="山东大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/OUC" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/6599299576238344531.jpg" alt="中国海洋大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/HUST" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/EEBAB88B673740BECED3559CD1DDFF49.png" alt="华中科技大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/HNU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/42F69A0777BBE19939795AFA7FC39503.png" alt="湖南大学" width="164" height="60">
+</a>
+
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/PUMC" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/4562267815F8B2520F8DDD0191757726.png" alt="北京协和医学院" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/CUEB" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/69942E7D26C5A6B64029E0CA26C78A14.png" alt="首都经济贸易大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/BUCM" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/2407455475823579778.jpg" alt="北京中医药大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/CNU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/BEA924FADBBA7EF77EE24248E30B9F22.png" alt="首都师范大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/CUPES" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/C55180498B99143985C1468EFF93A225.jpg" alt="首都体育学院" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/BFSU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/D99B66666A1C87FFE2AE4C6EE17D9CCB.jpg" alt="北京外国语大学" width="164" height="60">
+</a>
+<a class="u-usity f-fl" href="https://www.icourse163.org/university/BSU" target="_blank">
+<img class="" id="" src="%E5%A4%A7%E5%AD%A6%E5%88%97%E8%A1%A8_%E4%B8%AD%E5%9B%BD%E5%A4%A7%E5%AD%A6MOOC(%E6%85%95%E8%AF%BE)_files/322702998CD0CE4E565C536C6D0C9F3F.png" alt="北京体育学院" width="164" height="60">
+
+</div>
